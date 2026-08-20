@@ -1,0 +1,57 @@
+name: Daily problem set
+
+on:
+  schedule:
+    # 21:00 UTC = 06:00 JST。学習者が起きる前に当日分をコミットしておく。
+    - cron: '0 21 * * *'
+  workflow_dispatch:
+    inputs:
+      date:
+        description: '生成する日付 (YYYY-MM-DD, 空なら今日 JST)'
+        required: false
+      topic:
+        description: 'トピック id を指定 (空ならランダム)'
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Pick topic and build prompt
+        id: prompt
+        run: |
+          ARGS=""
+          [ -n "${{ inputs.date }}" ] && ARGS="$ARGS --date=${{ inputs.date }}"
+          [ -n "${{ inputs.topic }}" ] && ARGS="$ARGS --topic=${{ inputs.topic }}"
+          echo "date=$(node scripts/new-day.mjs $ARGS --print-date)" >> "$GITHUB_OUTPUT"
+          if ! node scripts/new-day.mjs $ARGS > /tmp/prompt.md; then
+            # 終了コード 2 = その日は生成済み。失敗ではなくスキップ扱いにする。
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Generate with Claude
+        if: steps.prompt.outputs.skip != 'true'
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt_file: /tmp/prompt.md
+          claude_args: '--allowedTools "Read,Write,Edit,Bash(node scripts/finalize-day.mjs*),Bash(node scripts/validate.mjs)"'
+
+      - name: Verify and commit
+        if: steps.prompt.outputs.skip != 'true'
+        run: |
+          node scripts/finalize-day.mjs --date=${{ steps.prompt.outputs.date }}
+          node --test "test/*.test.mjs"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add data/
+          git diff --staged --quiet || git commit -m "問題追加: ${{ steps.prompt.outputs.date }}"
+          git push

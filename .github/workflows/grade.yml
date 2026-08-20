@@ -1,0 +1,33 @@
+name: Grade submission
+
+on:
+  issues:
+    types: [opened, labeled]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  grade:
+    # ラベル "grade" が付いた Issue だけを採点対象にする。
+    if: contains(github.event.issue.labels.*.name, 'grade')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build grading prompt
+        env:
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          GITHUB_EVENT_NAME: issues
+        run: |
+          node scripts/build-grade-prompt.mjs > /tmp/prompt.md
+
+      - name: Grade with Claude
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt_file: /tmp/prompt.md
+          claude_args: '--allowedTools "Read,Bash(gh issue comment*)"'

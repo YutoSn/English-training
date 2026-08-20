@@ -1,0 +1,71 @@
+{
+  "topics": [
+    {
+      "id": "space-exploration",
+      "label": "宇宙開発",
+      "en": "space exploration",
+      "tags": [
+        "science"
+      ],
+      "addedAt": "2026-08-20",
+      "usedCount": 1,
+      "lastUsedOn": "2026-08-20"
+    },
+    {
+      "id": "generative-ai",
+      "label": "生成AI",
+      "en": "generative AI",
+      "tags": [
+        "tech"
+      ],
+      "addedAt": "2026-08-20",
+      "usedCount": 0,
+      "lastUsedOn": null
+    },
+    {
+      "id": "coffee-culture",
+      "label": "コーヒー文化",
+      "en": "coffee culture",
+      "tags": [
+        "culture"
+      ],
+      "addedAt": "2026-08-20",
+      "usedCount": 0,
+      "lastUsedOn": null
+    },
+    {
+      "id": "remote-work",
+      "label": "リモートワーク",
+      "en": "remote work",
+      "tags": [
+        "business"
+      ],
+      "addedAt": "2026-08-20",
+      "usedCount": 0,
+      "lastUsedOn": null
+    },
+    {
+      "id": "climate-tech",
+      "label": "気候テック",
+      "en": "climate technology",
+      "tags": [
+        "science",
+        "business"
+      ],
+      "addedAt": "2026-08-20",
+      "usedCount": 0,
+      "lastUsedOn": null
+    },
+    {
+      "id": "urban-design",
+      "label": "都市デザイン",
+      "en": "urban design",
+      "tags": [
+        "culture"
+      ],
+      "addedAt": "2026-08-20",
+      "usedCount": 0,
+      "lastUsedOn": null
+    }
+  ]
+}

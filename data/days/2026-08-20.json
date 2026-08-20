@@ -1,0 +1,169 @@
+{
+  "date": "2026-08-20",
+  "topic": { "id": "space-exploration", "label": "宇宙開発", "en": "space exploration" },
+  "level": { "toeic": 730, "cefr": "B2" },
+  "listening": {
+    "title": "Refuelling in Orbit",
+    "script": "Good afternoon, everyone. Before we open the floor to questions, let me summarise where the orbital refuelling programme stands. Two years ago, most analysts assumed that transferring propellant between spacecraft would remain a laboratory experiment for another decade. That assumption no longer holds. In March, our team completed the first transfer of cryogenic fuel between two vehicles already in orbit, and the operation finished eleven minutes ahead of schedule. The significance is not the fuel itself but what it removes: a mission no longer has to carry every gram of propellant it will ever need. A spacecraft can launch light, reach orbit cheaply, and then fill its tanks from a depot waiting above the atmosphere. Having said that, I want to be careful about the timeline. We have demonstrated the transfer once, under conditions we chose ourselves. Doing it routinely, with different vehicles built by different suppliers, is a much harder problem, and that is where the next three years of work will go.",
+    "questions": [
+      {
+        "id": "l1",
+        "prompt": "What is the main purpose of the talk?",
+        "choices": [
+          "To announce the cancellation of a fuel programme",
+          "To report progress on orbital refuelling and temper expectations",
+          "To compare propellant suppliers in the launch industry",
+          "To request additional funding from the audience"
+        ],
+        "answer": 1,
+        "explanation": "冒頭の \"let me summarise where the orbital refuelling programme stands\" で進捗報告だと示し、後半の \"I want to be careful about the timeline\" で期待を抑えている。この2点を両方含む選択肢は1つだけ。"
+      },
+      {
+        "id": "l2",
+        "prompt": "According to the speaker, what did most analysts believe two years ago?",
+        "choices": [
+          "That propellant transfer would stay experimental for another ten years",
+          "That propellant transfer had already become routine",
+          "That cryogenic fuel could not be stored in orbit at all",
+          "That depots would be cheaper than launching full tanks"
+        ],
+        "answer": 0,
+        "explanation": "\"most analysts assumed that transferring propellant ... would remain a laboratory experiment for another decade\" の言い換え。decade = ten years。"
+      },
+      {
+        "id": "l3",
+        "prompt": "What does the speaker say is the real significance of the March transfer?",
+        "choices": [
+          "It saved eleven minutes of operating cost",
+          "It proved cryogenic fuel is cheaper than other propellants",
+          "It frees a mission from carrying all of its propellant at launch",
+          "It allowed two suppliers to share a single vehicle"
+        ],
+        "answer": 2,
+        "explanation": "\"The significance is not the fuel itself but what it removes: a mission no longer has to carry every gram of propellant it will ever need.\" 「11分早く終わった」は事実だが significance として述べられていない(部分的に正しい罠)。"
+      },
+      {
+        "id": "l4",
+        "prompt": "What does the speaker identify as the next major challenge?",
+        "choices": [
+          "Reducing the cost of a single launch",
+          "Repeating the transfer routinely across vehicles from different suppliers",
+          "Finding a location for the first orbital depot",
+          "Training crews to operate cryogenic equipment"
+        ],
+        "answer": 1,
+        "explanation": "最終文 \"Doing it routinely, with different vehicles built by different suppliers, is a much harder problem\" が根拠。"
+      }
+    ]
+  },
+  "dictation": {
+    "sentences": [
+      {
+        "id": "d1",
+        "text": "The launch window closed before the engineers could finish their final checks.",
+        "hint": "closed before の /d/ + /b/ で破裂音が脱落する。could finish は弱形 /kəd/ になる。"
+      },
+      {
+        "id": "d2",
+        "text": "We had to postpone the docking attempt because of an unexpected software fault.",
+        "hint": "had to は /hæt tə/ のように同化。because of は連結して /bɪkɔːzəv/。"
+      },
+      {
+        "id": "d3",
+        "text": "Most of the debris in that orbit came from a satellite that broke apart in 2009.",
+        "hint": "Most of the が連結して /moʊstəvðə/。broke apart も /brəʊkəpɑːt/ とつながる。"
+      },
+      {
+        "id": "d4",
+        "text": "If the depot runs out of fuel, the crew will have to return earlier than planned.",
+        "hint": "runs out of は3語が1語のように連結。will have to は /wɪləftə/ と縮む。"
+      },
+      {
+        "id": "d5",
+        "text": "Nobody expected the private sector to reach the moon ahead of the agencies.",
+        "hint": "expected the で /d/ が脱落。ahead of the も連結する。"
+      }
+    ]
+  },
+  "reading": {
+    "passage": "For most of the space age, the cost of reaching orbit was treated as a fixed constraint. Engineers designed around it: every instrument was miniaturised, every gram justified, every mission planned as a single irreversible act. A spacecraft that ran out of propellant was simply finished, however healthy its instruments remained. This logic produced remarkable machines, but it also produced a strange kind of waste, in which working hardware was abandoned for want of fuel that could not be delivered.\n\nThe economics have now shifted. Reusable boosters have cut the price of a kilogram in low orbit by roughly an order of magnitude since 2015, and that single change has made a second idea practical: refuelling. If propellant can be delivered to a spacecraft after launch, then the mass a vehicle carries at lift-off stops being the ceiling on what it can eventually do. Missions can be extended, redirected, or repaired rather than retired.\n\nThe obstacles are no longer mainly technical. Cryogenic propellants boil off in sunlight, so depots need shading and active cooling, but those are engineering problems with known solutions. The harder questions are institutional. Who certifies that a fuel transfer between two companies' vehicles is safe? Which agency is liable if a depot fragments and showers debris across a busy orbit? Standards bodies have begun drafting rules, yet they are moving considerably more slowly than the vehicles they hope to regulate, and several operators have said they will not commit to a depot architecture until the liability question is settled.",
+    "glossary": [
+      { "word": "propellant", "meaning": "推進剤、燃料" },
+      { "word": "cryogenic", "meaning": "極低温の" },
+      { "word": "boil off", "meaning": "蒸発して失われる" },
+      { "word": "depot", "meaning": "補給拠点、燃料デポ" },
+      { "word": "order of magnitude", "meaning": "一桁分(約10倍)" },
+      { "word": "liability", "meaning": "法的責任" },
+      { "word": "certify", "meaning": "(安全性などを)認証する" }
+    ],
+    "questions": [
+      {
+        "id": "r1",
+        "prompt": "What does the author mean by \"a strange kind of waste\" in the first paragraph?",
+        "choices": [
+          "Instruments were built too small to be useful",
+          "Functioning spacecraft were abandoned only because fuel could not be resupplied",
+          "Missions were repeated unnecessarily by different agencies",
+          "Propellant was routinely dumped before re-entry"
+        ],
+        "answer": 1,
+        "explanation": "直後の \"working hardware was abandoned for want of fuel that could not be delivered\" が定義になっている。for want of = 〜がないために。"
+      },
+      {
+        "id": "r2",
+        "prompt": "According to the passage, what made refuelling practical?",
+        "choices": [
+          "A breakthrough in cryogenic cooling",
+          "New international treaties on orbital debris",
+          "A roughly tenfold fall in the cost of launching mass to low orbit",
+          "The miniaturisation of scientific instruments"
+        ],
+        "answer": 2,
+        "explanation": "第2段落 \"Reusable boosters have cut the price ... by roughly an order of magnitude since 2015, and that single change has made a second idea practical\"。an order of magnitude が約10倍。"
+      },
+      {
+        "id": "r3",
+        "prompt": "What is the author's view of the technical obstacles to fuel depots?",
+        "choices": [
+          "They are the main reason depots have not been built",
+          "They are real but have known engineering solutions",
+          "They have been entirely eliminated",
+          "They are less serious than the cost of cooling equipment"
+        ],
+        "answer": 1,
+        "explanation": "\"those are engineering problems with known solutions\" が根拠。\"The obstacles are no longer mainly technical\" から、技術が主因ではないことも分かる。"
+      },
+      {
+        "id": "r4",
+        "prompt": "Why do several operators hesitate to commit to a depot architecture?",
+        "choices": [
+          "Boil-off rates remain impossible to predict",
+          "The question of legal responsibility has not been resolved",
+          "Standards bodies have refused to draft any rules",
+          "Reusable boosters are not yet reliable enough"
+        ],
+        "answer": 1,
+        "explanation": "最終文 \"several operators have said they will not commit to a depot architecture until the liability question is settled\"。"
+      },
+      {
+        "id": "r5",
+        "prompt": "The word \"retired\" at the end of the second paragraph is closest in meaning to",
+        "choices": ["taken out of service", "sent to a lower orbit", "sold to another operator", "shut down temporarily"],
+        "answer": 0,
+        "explanation": "\"extended, redirected, or repaired rather than retired\" と対比されており、任務終了=運用停止の意味。temporarily(一時的)は誤り。"
+      }
+    ]
+  },
+  "writing": {
+    "prompt": "Some people argue that public space agencies should hand most launch and refuelling work to private companies and focus only on science missions. Do you agree? Give reasons and one concrete example.",
+    "words": [60, 100],
+    "keyPoints": [
+      "賛成・反対の立場を最初の1文で明示しているか",
+      "理由を2つ以上、それぞれ具体的に述べているか",
+      "具体例が主張を実際に支えているか(一般論で終わっていないか)",
+      "譲歩表現 (Although / While) を使って反対意見に触れているか",
+      "指定語数 (60〜100語) に収まっているか"
+    ],
+    "modelAnswer": "I largely agree, though with one condition. Private firms have cut launch costs dramatically because competition rewards efficiency, and agencies cannot match that pressure internally. Handing routine transport to them frees public money for work no company would fund, such as a decade-long mission to an outer moon. However, safety certification should stay public. When two commercial vehicles transfer fuel in orbit, only a neutral regulator can judge the risk to everyone else using that orbit, so agencies should retire from launching but not from oversight."
+  }
+}
