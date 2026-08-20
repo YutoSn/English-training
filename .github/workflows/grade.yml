@@ -15,19 +15,30 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
 
-      - name: Build grading prompt
+      - name: Grade with Gemini
         env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           ISSUE_BODY: ${{ github.event.issue.body }}
           ISSUE_TITLE: ${{ github.event.issue.title }}
-          ISSUE_NUMBER: ${{ github.event.issue.number }}
-          GITHUB_EVENT_NAME: issues
-        run: |
-          node scripts/build-grade-prompt.mjs > /tmp/prompt.md
+        run: node scripts/grade.mjs > feedback.md
 
-      - name: Grade with Claude
-        uses: anthropics/claude-code-action@v1
-        with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          prompt_file: /tmp/prompt.md
-          claude_args: '--allowedTools "Read,Bash(gh issue comment*)"'
+      - name: Post feedback
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          printf '\n\n---\n_Gemini による自動採点_\n' >> feedback.md
+          gh issue comment ${{ github.event.issue.number }} \
+            --repo ${{ github.repository }} --body-file feedback.md
+
+      - name: Report failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue comment ${{ github.event.issue.number }} \
+            --repo ${{ github.repository }} \
+            --body "採点に失敗しました。[実行ログ](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) を確認してください。"

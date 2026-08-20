@@ -25,33 +25,34 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Pick topic and build prompt
-        id: prompt
+      - name: Generate with Gemini
+        id: generate
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
           ARGS=""
           [ -n "${{ inputs.date }}" ] && ARGS="$ARGS --date=${{ inputs.date }}"
           [ -n "${{ inputs.topic }}" ] && ARGS="$ARGS --topic=${{ inputs.topic }}"
           echo "date=$(node scripts/new-day.mjs $ARGS --print-date)" >> "$GITHUB_OUTPUT"
-          if ! node scripts/new-day.mjs $ARGS > /tmp/prompt.md; then
-            # 終了コード 2 = その日は生成済み。失敗ではなくスキップ扱いにする。
+
+          set +e
+          node scripts/generate-day.mjs $ARGS
+          code=$?
+          set -e
+          # 終了コード 2 = その日は生成済み。失敗ではなくスキップ扱いにする。
+          if [ $code -eq 2 ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
+          elif [ $code -ne 0 ]; then
+            exit $code
           fi
 
-      - name: Generate with Claude
-        if: steps.prompt.outputs.skip != 'true'
-        uses: anthropics/claude-code-action@v1
-        with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          prompt_file: /tmp/prompt.md
-          claude_args: '--allowedTools "Read,Write,Edit,Bash(node scripts/finalize-day.mjs*),Bash(node scripts/validate.mjs)"'
-
-      - name: Verify and commit
-        if: steps.prompt.outputs.skip != 'true'
+      - name: Test and commit
+        if: steps.generate.outputs.skip != 'true'
         run: |
-          node scripts/finalize-day.mjs --date=${{ steps.prompt.outputs.date }}
           node --test "test/*.test.mjs"
+          node scripts/validate.mjs
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add data/
-          git diff --staged --quiet || git commit -m "問題追加: ${{ steps.prompt.outputs.date }}"
+          git diff --staged --quiet || git commit -m "問題追加: ${{ steps.generate.outputs.date }}"
           git push

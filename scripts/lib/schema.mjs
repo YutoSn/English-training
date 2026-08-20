@@ -92,4 +92,115 @@ export function validateDay(day, { date } = {}) {
   return { ok: errors.length === 0, errors };
 }
 
+/**
+ * Gemini responseSchema (OpenAPI subset) for the *content* half of a day set.
+ * date / topic / level are filled in by the script, not the model — those are
+ * facts we already know, and asking for them only invites the model to get the
+ * date wrong.
+ *
+ * Kept next to validateDay on purpose: a field added to one must be added to
+ * the other, or generation starts failing validation.
+ */
+export function daySchema(sections) {
+  const string = (description) => ({ type: 'STRING', description });
+
+  const choiceQuestion = (kind) => ({
+    type: 'OBJECT',
+    properties: {
+      id: string(`${kind}1 のような連番 id`),
+      prompt: string('英語の設問文'),
+      choices: { type: 'ARRAY', items: string('選択肢 (英語)'), minItems: 4, maxItems: 4 },
+      answer: { type: 'INTEGER', description: '正解の choices インデックス (0-3)' },
+      explanation: string('日本語の解説。根拠となる英文を引用する'),
+    },
+    required: ['id', 'prompt', 'choices', 'answer', 'explanation'],
+    propertyOrdering: ['id', 'prompt', 'choices', 'answer', 'explanation'],
+  });
+
+  const properties = {};
+
+  if (sections.listening?.enabled) {
+    properties.listening = {
+      type: 'OBJECT',
+      properties: {
+        title: string('英語のタイトル'),
+        script: string('読み上げ用の英文スクリプト。記号や箇条書きを含めない'),
+        questions: { type: 'ARRAY', items: choiceQuestion('l') },
+      },
+      required: ['title', 'script', 'questions'],
+      propertyOrdering: ['title', 'script', 'questions'],
+    };
+  }
+
+  if (sections.dictation?.enabled) {
+    properties.dictation = {
+      type: 'OBJECT',
+      properties: {
+        sentences: {
+          type: 'ARRAY',
+          items: {
+            type: 'OBJECT',
+            properties: {
+              id: string('d1 のような連番 id'),
+              text: string('10〜20語の英文。listening.script と重複させない'),
+              hint: string('狙う音声現象の日本語説明'),
+            },
+            required: ['id', 'text', 'hint'],
+            propertyOrdering: ['id', 'text', 'hint'],
+          },
+        },
+      },
+      required: ['sentences'],
+    };
+  }
+
+  if (sections.reading?.enabled) {
+    properties.reading = {
+      type: 'OBJECT',
+      properties: {
+        passage: string('英文パッセージ。段落は \\n\\n で区切る'),
+        glossary: {
+          type: 'ARRAY',
+          items: {
+            type: 'OBJECT',
+            properties: { word: string('英単語'), meaning: string('日本語訳') },
+            required: ['word', 'meaning'],
+            propertyOrdering: ['word', 'meaning'],
+          },
+        },
+        questions: { type: 'ARRAY', items: choiceQuestion('r') },
+      },
+      required: ['passage', 'glossary', 'questions'],
+      propertyOrdering: ['passage', 'glossary', 'questions'],
+    };
+  }
+
+  if (sections.writing?.enabled) {
+    properties.writing = {
+      type: 'OBJECT',
+      properties: {
+        prompt: string('英作文の課題文'),
+        words: {
+          type: 'ARRAY',
+          items: { type: 'INTEGER' },
+          description: '[最小語数, 最大語数]',
+          minItems: 2,
+          maxItems: 2,
+        },
+        keyPoints: { type: 'ARRAY', items: string('日本語の採点観点') },
+        modelAnswer: string('指定語数に収まる模範解答 (英語)'),
+      },
+      required: ['prompt', 'words', 'keyPoints', 'modelAnswer'],
+      propertyOrdering: ['prompt', 'words', 'keyPoints', 'modelAnswer'],
+    };
+  }
+
+  return {
+    type: 'OBJECT',
+    properties,
+    required: Object.keys(properties),
+    propertyOrdering: SECTIONS.filter((s) => s in properties),
+  };
+}
+
 export { SECTIONS };

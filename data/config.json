@@ -3,41 +3,24 @@
     "toeic": 730,
     "note": "目標TOEICスコア。問題生成の難易度はこの値から決まる。350〜990の範囲で調整する。"
   },
-  "dailySeed": "date",
+  "generator": {
+    "provider": "gemini",
+    "model": "gemini-2.5-pro",
+    "gradeModel": "gemini-2.5-flash",
+    "maxAttempts": 3,
+    "note": "利用可能なモデルは `node scripts/gemini.mjs --models` で確認できる。"
+  },
   "topicsPerDay": 1,
   "recentTopicWindow": 14,
   "sections": {
-    "listening": {
-      "enabled": true,
-      "questions": 4,
-      "scriptWords": [
-        130,
-        180
-      ]
-    },
-    "dictation": {
-      "enabled": true,
-      "sentences": 5
-    },
-    "reading": {
-      "enabled": true,
-      "questions": 5,
-      "passageWords": [
-        220,
-        320
-      ]
-    },
-    "writing": {
-      "enabled": true,
-      "words": [
-        60,
-        100
-      ]
-    }
+    "listening": { "enabled": true, "questions": 4, "scriptWords": [130, 180] },
+    "dictation": { "enabled": true, "sentences": 5 },
+    "reading": { "enabled": true, "questions": 5, "passageWords": [220, 320] },
+    "writing": { "enabled": true, "words": [60, 100] }
   },
   "speech": {
     "lang": "en-US",
-    "defaultRate": 1,
+    "defaultRate": 1.0,
     "dictationRate": 0.85
   },
   "repo": "YutoSn/English-training"

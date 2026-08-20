@@ -4,13 +4,17 @@
   "private": true,
   "type": "module",
   "description": "毎日の英語学習(リスニング/ディクテーション/リーディング/英作文)と Claude による採点",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "start": "node --run serve",
     "serve": "node scripts/serve.mjs",
-    "new": "node scripts/new-day.mjs",
-    "finalize": "node scripts/finalize-day.mjs",
+    "new": "node scripts/generate-day.mjs",
+    "prompt": "node scripts/new-day.mjs",
+    "grade": "node scripts/grade.mjs",
     "topic": "node scripts/add-topic.mjs",
+    "models": "node scripts/gemini.mjs --models",
     "validate": "node scripts/validate.mjs",
     "test": "node --test \"test/*.test.mjs\" && node scripts/validate.mjs"
   }
