@@ -17,6 +17,7 @@ node scripts/generate-day.mjs --from-file=x.json    # API を使わず手元の 
 node scripts/new-day.mjs --date=...                 # プロンプトだけ stdout に出す
 node scripts/grade.mjs --file=解答.md [--prompt-only]
 node scripts/add-topic.mjs "深海探査:deep-sea exploration"
+node scripts/apply-settings.mjs --file=issue.md [--dry-run]   # 設定 Issue を data/ に反映
 ```
 
 ビルドステップと外部依存はない (Gemini も SDK ではなく素の fetch で叩いている)。
@@ -40,10 +41,16 @@ scripts/lib/plan.mjs ──プロンプト+responseSchema──▶ Gemini API
                                                         │   data/topics.json (usedCount 更新)
                                                         ▼
                                      index.html + web/*.js が fetch して描画
-                                                        │
-                                          解答 (localStorage)
-                                                        ▼
-                              buildSubmission() ──▶ grade.mjs ──▶ Gemini
+                                                    │        │
+                                    解答 (localStorage)      設定タブ
+                                                    ▼        ▼
+                        buildSubmission() ──▶ grade.mjs   renderSettingsBody()
+                                    │                          │
+                                    ▼                     GitHub Issue (settings)
+                                 Gemini                        │
+                                                     apply-settings.mjs
+                                                               ▼
+                                            data/config.json / data/topics.json
 ```
 
 ### 押さえるべき不変条件
@@ -89,13 +96,39 @@ scripts/lib/plan.mjs ──プロンプト+responseSchema──▶ Gemini API
 
 ### web/ の分割理由
 
-`web/diff.js` と `web/store.js` は DOM も browser API も触らない。`test/` から Node で
-そのまま import してテストするため。DOM 操作は `web/app.js`、音声は `web/speech.js` に閉じる。
-この境界を越えると該当ロジックがテスト不能になる。
+`web/diff.js` `web/store.js` `web/settings.js` は DOM も browser API も触らない。
+`test/` から Node でそのまま import してテストするため。DOM 操作は `web/app.js`、
+音声は `web/speech.js` に閉じる。この境界を越えると該当ロジックがテスト不能になる。
+
+**純粋モジュールは web/ ↔ scripts/lib/ を双方向に import する**。二重管理を避けるため:
+
+- `scripts/lib/settings.mjs` → `web/settings.js` (設定ペイロードの形式)
+- `web/app.js` → `scripts/lib/level.mjs` (TOEIC バンドの説明文)
+
+どちらも `node:*` と DOM の両方を持ち込まないことが条件。持ち込むと片側が壊れる。
+ローカル配信では `scripts/serve.mjs` の MIME 型に `.mjs` が必要 (無いとブラウザが
+ES module として読まない)。
 
 音声はすべて Web Speech API による端末側の合成。音声ファイルを生成・配布する経路は
 存在しないので、リスニング教材は「読み上げやすい地の文」で書く必要がある
 (記号・箇条書き・URL などを入れない)。
+
+### 設定変更の経路
+
+アプリの「設定」タブは `data/*.json` を直接書けない (静的配信 + localStorage は
+Actions から読めない)。そこで採点と同じ Issue 経由にしてある:
+
+`web/settings.js` の `renderSettingsBody()` が `<!-- settings ... -->` に JSON を埋め、
+`settings.yml` → `apply-settings.mjs` → `extractPayload()` → `applyPayload()` が
+config と topics に書き戻す。`applyPayload` は純粋関数で、書き込みは CLI 側の担当。
+
+- **`clampToeic` は null / '' / boolean を弾く**。下書きの「変更なし」は `toeic: null`
+  で表すが、`Number(null)` は 0 なので、素直に丸めると最低スコア 350 が送信されてしまう。
+- **`data/config.json` は `writeJson` の整形に揃えてある**。手で書き直すと設定変更の
+  たびに巨大な差分が出る。
+- テーマの `en` は任意。省略時は `apply-settings.mjs` が Gemini に訳させてから
+  `slugify` で id にする。
+- `settings.yml` と `grade.yml` は発行者がリポジトリ所有者の Issue しか処理しない。
 
 ### 採点の経路
 
@@ -125,6 +158,8 @@ Issue 経由の採点が日付を取り違える。採点プロンプトには�
   生成済みの日は終了コード 2 を見てスキップする (失敗にしない)。
 - `grade.yml` — `grade` ラベル付き Issue に反応し、`grade.mjs` の出力を
   `gh issue comment` で返す。失敗時も Issue にその旨をコメントする。
+- `settings.yml` — `settings` ラベル付き Issue を `apply-settings.mjs` に通し、
+  変更をコミットして Issue にコメント + クローズする。
 - `pages.yml` — リポジトリ全体をそのまま Pages に配信する (`index.html`・`web/`・`data/` が
   すべて必要なため、サブディレクトリ配信にはできない)。
 

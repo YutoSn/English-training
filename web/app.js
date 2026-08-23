@@ -7,9 +7,28 @@ import {
   countWords,
   buildSubmission,
   issueUrl,
+  loadDraft,
+  saveDraft,
+  loadSent,
+  saveSent,
+  clearSent,
 } from './store.js';
+import {
+  TOEIC_MIN,
+  TOEIC_MAX,
+  buildPayload,
+  isEmptyPayload,
+  isApplied,
+  normalizeTopicInput,
+  pendingChanges,
+  renderSettingsBody,
+  settingsIssueUrl,
+  topicKey,
+} from './settings.js';
+// バンド定義は生成プロンプトと同じものを使う (二重管理を避けるため直接 import する)。
+import { levelProfile } from '../scripts/lib/level.mjs';
 
-const state = { config: null, index: null, day: null, answers: null, tab: null };
+const state = { config: null, index: null, topics: [], day: null, answers: null, tab: null };
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -402,6 +421,247 @@ function reviewPanel(day) {
   return card;
 }
 
+function settingsPanel() {
+  const draft = loadDraft();
+  const current = state.config.level.toeic;
+  const frag = document.createDocumentFragment();
+
+  const persistDraft = () => saveDraft(draft);
+
+  /* ---- レベル ---- */
+  const scoreLabel = el('span', { class: 'score' }, '');
+  const bandBox = el('div', { class: 'explanation' });
+  const slider = el('input', {
+    type: 'range',
+    min: String(TOEIC_MIN),
+    max: String(TOEIC_MAX),
+    step: '10',
+    'aria-label': '目標TOEICスコア',
+  });
+  slider.value = String(draft.toeic ?? current);
+
+  function refreshLevel() {
+    const score = Number(slider.value);
+    const profile = levelProfile(score);
+    scoreLabel.textContent = `TOEIC ${score}`;
+    scoreLabel.classList.toggle('done', score !== current);
+    bandBox.replaceChildren(
+      el('div', {}, `CEFR ${profile.cefr}`),
+      el('div', {}, `語彙: ${profile.vocabulary}`),
+      el('div', {}, `文長・構文: ${profile.sentence}`),
+      el('div', {}, `話速: ${profile.speech}`),
+    );
+    draft.toeic = score === current ? null : score;
+    persistDraft();
+    refreshApply();
+  }
+  slider.addEventListener('input', refreshLevel);
+
+  frag.append(
+    el(
+      'div',
+      { class: 'card' },
+      el('h2', {}, 'レベル ', scoreLabel),
+      el('p', { class: 'meta' }, `現在の設定: TOEIC ${current} — 変更は次回の生成分から反映されます。`),
+      el('div', { class: 'controls' }, slider),
+      bandBox,
+    ),
+  );
+
+  /* ---- テーマ ---- */
+  const labelInput = el('input', { type: 'text', placeholder: '深海探査', 'aria-label': 'テーマ (日本語)' });
+  const enInput = el('input', { type: 'text', placeholder: 'deep-sea exploration (省略可)', 'aria-label': 'テーマ (英語)' });
+  const queue = el('ul', { class: 'topic-queue' });
+
+  function addFromForm() {
+    const topic = normalizeTopicInput(labelInput.value, enInput.value);
+    if (!topic) return toast('テーマを入力してください');
+    const known = state.topics.some(
+      (t) => t.label === topic.label || (topic.en && topicKey(t) === topicKey(topic)),
+    );
+    if (known) return toast('すでに登録されています');
+    if (draft.addTopics.some((t) => t.label === topic.label)) return toast('追加予定にあります');
+    draft.addTopics.push(topic);
+    labelInput.value = '';
+    enInput.value = '';
+    persistDraft();
+    refreshQueue();
+    refreshApply();
+  }
+
+  function refreshQueue() {
+    queue.replaceChildren(
+      ...draft.addTopics.map((topic, i) =>
+        el(
+          'li',
+          {},
+          el('span', {}, topic.label),
+          el('span', { class: 'meta' }, topic.en ? topic.en : '英語フレーズは自動で補われます'),
+          el(
+            'button',
+            {
+              class: 'btn small',
+              'aria-label': `${topic.label} を取り消す`,
+              onclick: () => {
+                draft.addTopics.splice(i, 1);
+                persistDraft();
+                refreshQueue();
+                refreshApply();
+              },
+            },
+            '取消',
+          ),
+        ),
+      ),
+    );
+    queue.classList.toggle('hidden', draft.addTopics.length === 0);
+  }
+
+  labelInput.addEventListener('keydown', (e) => e.key === 'Enter' && addFromForm());
+  enInput.addEventListener('keydown', (e) => e.key === 'Enter' && addFromForm());
+
+  const known = el(
+    'details',
+    {},
+    el('summary', { class: 'meta' }, `登録済みのテーマ ${state.topics.length} 件`),
+    el(
+      'table',
+      { class: 'glossary' },
+      [...state.topics]
+        .sort((a, b) => (a.usedCount ?? 0) - (b.usedCount ?? 0))
+        .map((t) =>
+          el(
+            'tr',
+            {},
+            el('td', {}, t.label),
+            el('td', { class: 'meta' }, t.en),
+            el('td', { class: 'meta' }, t.usedCount ? `${t.usedCount}回` : '未出題'),
+          ),
+        ),
+    ),
+  );
+
+  frag.append(
+    el(
+      'div',
+      { class: 'card' },
+      el('h2', {}, 'テーマ'),
+      el(
+        'p',
+        { class: 'meta' },
+        '興味のあるワードを足すと、以降の問題からランダムに選ばれます。英語フレーズを省くと Gemini が訳して補います。',
+      ),
+      el('div', { class: 'controls topic-form' }, labelInput, enInput, el('button', { class: 'btn', onclick: addFromForm }, '追加')),
+      queue,
+      known,
+    ),
+  );
+
+  /* ---- 反映 ---- */
+  const summary = el('div', {});
+  const actions = el('div', { class: 'controls' });
+  const sentNote = el('p', { class: 'explanation hidden' });
+
+  function refreshApply() {
+    const payload = buildPayload(draft);
+    const empty = isEmptyPayload(payload);
+
+    summary.replaceChildren(
+      empty
+        ? el('p', { class: 'meta' }, '変更はありません。')
+        : el(
+            'ul',
+            {},
+            payload.toeic !== undefined
+              ? el('li', {}, `目標レベル: TOEIC ${current} → ${payload.toeic}`)
+              : null,
+            ...(payload.addTopics ?? []).map((t) => el('li', {}, `テーマ追加: ${t.label}`)),
+          ),
+    );
+
+    const body = empty ? '' : renderSettingsBody(payload, { toeic: current });
+    actions.replaceChildren(
+      state.config.repo
+        ? el(
+            'a',
+            {
+              class: `btn primary${empty ? ' disabled' : ''}`,
+              target: '_blank',
+              rel: 'noopener',
+              href: empty ? '#' : settingsIssueUrl(state.config.repo, payload, { toeic: current }),
+              onclick: (e) => {
+                if (empty) return e.preventDefault();
+                // Issue を開いた時点で「送信済み」とみなす。実際に反映されたかは
+                // 次回読み込み時に data/*.json と突き合わせて判定する。
+                saveSent(payload);
+                refreshSent();
+              },
+            },
+            'GitHub Issue で送信',
+          )
+        : null,
+      el(
+        'button',
+        {
+          class: 'btn small',
+          onclick: async () => {
+            if (empty) return toast('変更はありません');
+            try {
+              await navigator.clipboard.writeText(body);
+              toast('コピーしました');
+            } catch {
+              toast('コピーできませんでした');
+            }
+          },
+        },
+        '内容をコピー',
+      ),
+      draft.toeic !== null || draft.addTopics.length
+        ? el(
+            'button',
+            {
+              class: 'btn small',
+              onclick: () => {
+                draft.toeic = null;
+                draft.addTopics = [];
+                slider.value = String(current);
+                persistDraft();
+                refreshLevel();
+                refreshQueue();
+              },
+            },
+            '下書きを破棄',
+          )
+        : null,
+    );
+  }
+
+  function refreshSent() {
+    const sent = loadSent();
+    if (!sent) return sentNote.classList.add('hidden');
+    if (isApplied(sent, { config: state.config, topics: state.topics })) {
+      clearSent();
+      return sentNote.classList.add('hidden');
+    }
+    const pending = pendingChanges(sent, { config: state.config, topics: state.topics });
+    const parts = [
+      pending.toeic !== null ? `TOEIC ${pending.toeic}` : null,
+      ...pending.topics.map((t) => t.label),
+    ].filter(Boolean);
+    sentNote.textContent = `送信済み・反映待ち: ${parts.join(' / ')} — Actions が処理すると Issue にコメントが付き、次回このページを開いた時点でこの表示は消えます。`;
+    sentNote.classList.remove('hidden');
+  }
+
+  frag.append(
+    el('div', { class: 'card' }, el('h2', {}, '変更を反映する'), summary, actions, sentNote),
+  );
+
+  refreshLevel();
+  refreshQueue();
+  refreshSent();
+  return frag;
+}
+
 /* ---------- shell ---------- */
 
 const PANELS = [
@@ -411,6 +671,12 @@ const PANELS = [
   ['writing', '英作文', writingPanel],
 ];
 
+/** その日の問題に紐づかないタブ。常に最後に並ぶ。 */
+const EXTRA_PANELS = [
+  ['review', '採点', reviewPanel],
+  ['settings', '設定', settingsPanel],
+];
+
 function render(day) {
   stop();
   const tabs = $('#tabs');
@@ -418,13 +684,11 @@ function render(day) {
   tabs.replaceChildren();
   panels.replaceChildren();
 
-  const available = PANELS.filter(([key]) => day[key]);
-  const entries = [...available.map(([k, label]) => [k, label]), ['review', '採点']];
+  const entries = [...PANELS.filter(([key]) => day[key]), ...EXTRA_PANELS];
 
-  for (const [key, label] of entries) {
-    const build = available.find(([k]) => k === key)?.[2];
+  for (const [key, label, build] of entries) {
     const panel = el('section', { class: 'panel', id: `panel-${key}` });
-    panel.append(build ? build(day) : reviewPanel(day));
+    panel.append(build(day));
     panels.append(panel);
 
     const tab = el(
@@ -474,12 +738,17 @@ async function loadDay(date) {
 
 async function boot() {
   try {
-    const [config, index] = await Promise.all([
+    const [config, index, topics] = await Promise.all([
       fetch('data/config.json', { cache: 'no-cache' }).then((r) => r.json()),
       fetch('data/index.json', { cache: 'no-cache' }).then((r) => r.json()),
+      // 設定タブでしか使わないが、失敗してもアプリ全体は動かす。
+      fetch('data/topics.json', { cache: 'no-cache' })
+        .then((r) => r.json())
+        .catch(() => ({ topics: [] })),
     ]);
     state.config = config;
     state.index = index;
+    state.topics = topics.topics ?? [];
 
     if (index.days.length === 0) throw new Error('問題がまだありません');
 

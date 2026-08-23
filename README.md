@@ -55,18 +55,33 @@ node --run grade -- --file=解答.md
 
 Claude Code からは `/grade --file=解答.md`。
 
-### テーマを増やす
+### テーマを増やす・レベルを変える (アプリから)
+
+「設定」タブでどちらも変えられる。
+
+- **レベル**: スライダーで目標 TOEIC スコアを動かす。CEFR や語彙・文長の目安が
+  その場で表示される
+- **テーマ**: 日本語で入力して「追加」。英語フレーズは省略してよく、
+  その場合は反映時に Gemini が訳す
+
+変更したら「GitHub Issue で送信」を押す。`settings` ラベル付きの Issue が作られ、
+Actions が `data/config.json` と `data/topics.json` に書き戻してコメントを返す。
+**反映は次回の生成分から** — 既にある問題は作り直さない。
+
+サイトは静的配信で、問題を作るのは Actions 側にある。ブラウザの localStorage は
+Actions から読めないので、この Issue 経由の一往復がリポジトリに書き戻す唯一の経路になる。
+送信済みでまだ反映されていない変更は「設定」タブに表示され、反映されると自動で消える。
+
+### テーマを増やす・レベルを変える (手元から)
 
 ```sh
 node --run topic -- "深海探査:deep-sea exploration" "発酵食品:fermented food"
 ```
 
-Claude Code なら `/add-topic 深海探査 発酵食品` でもよい(英語フレーズは補ってくれる)。
+`data/config.json` の `level.toeic` を直接書き換えてもよい。
+Claude Code なら `/add-topic 深海探査 発酵食品` でも足せる(英語フレーズは補ってくれる)。
+
 一度使ったテーマは 14 日間は再登場しない (`recentTopicWindow`)。
-
-### レベルを変える
-
-`data/config.json` の `level.toeic` を書き換える。翌日の生成分から反映される。
 バンドごとの語彙・文長・話速の指示は `scripts/lib/level.mjs` にある。
 
 ### モデルを変える

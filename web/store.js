@@ -86,3 +86,46 @@ export function issueUrl(repo, day, submission) {
   const body = `${submission}\n\n---\n<!-- date:${day.date} -->`;
   return `https://github.com/${repo}/issues/new?labels=grade&title=${encodeURIComponent(title)}&body=${encodeURIComponent(body)}`;
 }
+
+/**
+ * 設定タブの下書きと「送信済みだが未反映」の payload。
+ * 解答とは別キーにして、日付をまたいで持ち越す。
+ */
+const SETTINGS_KEY = 'english-training:settings';
+
+function readSettings() {
+  try {
+    return JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? '{}');
+  } catch {
+    return {};
+  }
+}
+
+function writeSettings(value) {
+  try {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(value));
+  } catch {
+    /* private mode / quota — 下書きが残らないだけ */
+  }
+}
+
+export function loadDraft() {
+  return readSettings().draft ?? { toeic: null, addTopics: [] };
+}
+
+export function saveDraft(draft) {
+  writeSettings({ ...readSettings(), draft });
+}
+
+export function loadSent() {
+  return readSettings().sent ?? null;
+}
+
+export function saveSent(payload) {
+  writeSettings({ ...readSettings(), sent: payload });
+}
+
+export function clearSent() {
+  const { sent, ...rest } = readSettings();
+  writeSettings(rest);
+}

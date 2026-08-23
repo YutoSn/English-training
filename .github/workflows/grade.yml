@@ -10,8 +10,11 @@ permissions:
 
 jobs:
   grade:
-    # ラベル "grade" が付いた Issue だけを採点対象にする。
-    if: contains(github.event.issue.labels.*.name, 'grade')
+    # ラベル "grade" が付いた、所有者自身の Issue だけを採点対象にする
+    # (API の無料枠を他人に消費されないように)。
+    if: >
+      contains(github.event.issue.labels.*.name, 'grade') &&
+      github.event.issue.user.login == github.repository_owner
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

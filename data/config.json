@@ -13,14 +13,37 @@
   "topicsPerDay": 1,
   "recentTopicWindow": 14,
   "sections": {
-    "listening": { "enabled": true, "questions": 4, "scriptWords": [130, 180] },
-    "dictation": { "enabled": true, "sentences": 5 },
-    "reading": { "enabled": true, "questions": 5, "passageWords": [220, 320] },
-    "writing": { "enabled": true, "words": [60, 100] }
+    "listening": {
+      "enabled": true,
+      "questions": 4,
+      "scriptWords": [
+        130,
+        180
+      ]
+    },
+    "dictation": {
+      "enabled": true,
+      "sentences": 5
+    },
+    "reading": {
+      "enabled": true,
+      "questions": 5,
+      "passageWords": [
+        220,
+        320
+      ]
+    },
+    "writing": {
+      "enabled": true,
+      "words": [
+        60,
+        100
+      ]
+    }
   },
   "speech": {
     "lang": "en-US",
-    "defaultRate": 1.0,
+    "defaultRate": 1,
     "dictationRate": 0.85
   },
   "repo": "YutoSn/English-training"

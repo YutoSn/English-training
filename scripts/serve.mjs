@@ -9,6 +9,9 @@ const port = Number(process.env.PORT ?? 8000);
 const TYPES = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
+  // web/app.js が scripts/lib/level.mjs を直接 import する。JS の MIME 型で
+  // 返さないとブラウザが ES module として読み込まない。
+  '.mjs': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
 };

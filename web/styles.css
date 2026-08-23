@@ -189,3 +189,33 @@ table.glossary td:first-child { font-weight: 600; white-space: nowrap; }
 .error { color: var(--ng); }
 
 .controls input[type="range"] { flex: 1 1 100px; max-width: 150px; min-width: 90px; }
+
+.topic-form { gap: 0.4rem; }
+.topic-form input[type="text"] {
+  flex: 1 1 160px;
+  min-width: 0;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.5rem 0.6rem;
+  min-height: 44px;
+}
+
+ul.topic-queue { list-style: none; padding: 0; margin: 0.5rem 0 0; }
+ul.topic-queue li {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 0.1rem 0.6rem;
+  border-top: 1px solid var(--border);
+  padding: 0.45rem 0;
+}
+ul.topic-queue li > span:first-child { grid-column: 1; font-weight: 600; }
+ul.topic-queue li > span.meta { grid-column: 1; font-size: 0.8rem; }
+ul.topic-queue li > button { grid-column: 2; grid-row: 1 / 3; white-space: nowrap; }
+
+details summary { cursor: pointer; padding: 0.5rem 0; }
+
+.btn.disabled { opacity: 0.45; pointer-events: none; }
+
+input[type="range"] { accent-color: var(--accent); }
