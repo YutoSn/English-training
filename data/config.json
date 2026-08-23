@@ -5,10 +5,10 @@
   },
   "generator": {
     "provider": "gemini",
-    "model": "gemini-2.5-pro",
-    "gradeModel": "gemini-2.5-flash",
+    "model": "gemini-pro-latest",
+    "gradeModel": "gemini-flash-latest",
     "maxAttempts": 3,
-    "note": "利用可能なモデルは `node scripts/gemini.mjs --models` で確認できる。"
+    "note": "モデルは引退すると 404 になるため、固定名ではなく -latest エイリアスを既定にしている。固定したい場合は `node --run models -- --check=名前` で疎通を確かめてから書き換える (一覧に載っていても呼べないモデルがある)。"
   },
   "topicsPerDay": 1,
   "recentTopicWindow": 14,

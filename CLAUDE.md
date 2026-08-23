@@ -72,7 +72,12 @@ scripts/lib/plan.mjs ──プロンプト+responseSchema──▶ Gemini API
 `scripts/lib/gemini.mjs` が唯一の API 接点。`generateWithRetry` が再試行するのは
 `GeminiError.retriable` が立つものだけ — 429 (無料枠のレート上限)、5xx、
 `finishReason: MAX_TOKENS`。400 系はプロンプトかスキーマの誤りなので即座に失敗させる。
+
 モデル名は `data/config.json` の `generator.model` / `generator.gradeModel`。
+**ListModels に載っていても generateContent が 404 を返すモデルがある**
+(旧モデルは新規ユーザーに公開されない)。名前を変えるときは一覧ではなく
+`node --run models -- --check=<名前>` の実測を信じること。既定を `-latest`
+エイリアスにしてあるのは、モデル引退で日次生成が止まるのを避けるため。
 
 採点は `temperature: 0.3` で呼ぶ (同じ解答で点が揺れないように)。生成は 0.9。
 

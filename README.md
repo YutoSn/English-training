@@ -72,7 +72,17 @@ Claude Code なら `/add-topic 深海探査 発酵食品` でもよい(英語フ
 ### モデルを変える
 
 `data/config.json` の `generator.model` (生成) と `generator.gradeModel` (採点)。
-使えるモデル名は `node --run models` で確認できる。
+既定は `gemini-pro-latest` / `gemini-flash-latest` — モデルは引退すると 404 になるので、
+最新版を指すエイリアスにしてある。
+
+固定名にしたいときは、先に疎通を確かめること。**一覧に載っていても呼べないモデルがある**
+(旧モデルは新規ユーザーに公開されない):
+
+```sh
+node --run models -- --check=gemini-3.1-pro-preview,gemini-3.7-flash
+```
+
+手元にキーが無い場合は Actions の "List Gemini models" を手動実行しても同じ確認ができる。
 
 ### 手動で問題を作る
 
