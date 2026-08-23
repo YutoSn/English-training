@@ -100,14 +100,15 @@ scripts/lib/plan.mjs ──プロンプト+responseSchema──▶ Gemini API
 `test/` から Node でそのまま import してテストするため。DOM 操作は `web/app.js`、
 音声は `web/speech.js` に閉じる。この境界を越えると該当ロジックがテスト不能になる。
 
-**純粋モジュールは web/ ↔ scripts/lib/ を双方向に import する**。二重管理を避けるため:
+**両側で使う純粋モジュールの実体は `web/` 側に `.js` で置き、`scripts/lib/` から
+再 export する**。二重管理を避けつつ、配信環境の MIME 型に依存しないため:
 
 - `scripts/lib/settings.mjs` → `web/settings.js` (設定ペイロードの形式)
-- `web/app.js` → `scripts/lib/level.mjs` (TOEIC バンドの説明文)
+- `scripts/lib/level.mjs` → `web/level.js` (TOEIC バンドの説明文)
 
-どちらも `node:*` と DOM の両方を持ち込まないことが条件。持ち込むと片側が壊れる。
-ローカル配信では `scripts/serve.mjs` の MIME 型に `.mjs` が必要 (無いとブラウザが
-ES module として読まない)。
+**ブラウザから `.mjs` を import しない**。JavaScript の MIME 型で返らない配信環境が
+あり、その場合 app.js ごと読み込みに失敗してアプリが丸ごと動かなくなる。
+条件は `node:*` と DOM のどちらも持ち込まないこと。持ち込むと片側が壊れる。
 
 音声はすべて Web Speech API による端末側の合成。音声ファイルを生成・配布する経路は
 存在しないので、リスニング教材は「読み上げやすい地の文」で書く必要がある

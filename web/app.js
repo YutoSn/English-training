@@ -25,8 +25,8 @@ import {
   settingsIssueUrl,
   topicKey,
 } from './settings.js';
-// バンド定義は生成プロンプトと同じものを使う (二重管理を避けるため直接 import する)。
-import { levelProfile } from '../scripts/lib/level.mjs';
+// バンド定義は生成プロンプトが使うものと同じ実体 (二重管理を避ける)。
+import { levelProfile } from './level.js';
 
 const state = { config: null, index: null, topics: [], day: null, answers: null, tab: null };
 
