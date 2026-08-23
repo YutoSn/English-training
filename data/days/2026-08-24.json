@@ -1,0 +1,199 @@
+{
+  "date": "2026-08-24",
+  "topic": {
+    "id": "generative-ai",
+    "label": "生成AI",
+    "en": "generative AI"
+  },
+  "level": {
+    "toeic": 730,
+    "cefr": "B2"
+  },
+  "listening": {
+    "title": "Generative AI in the Workplace",
+    "script": "Good morning, everyone. Thank you for joining this session on how generative AI is transforming our workflow. Over the past few months, we have seen a significant shift in our daily operations. Initially, many employees were hesitant, fearing that these tools might eventually take over their jobs. However, as they began to use AI for drafting emails and summarizing lengthy reports, the overall perception started to change. By automating these repetitive tasks, our team has been able to focus on more strategic initiatives, which ultimately boosts our productivity. That being said, we must keep in mind that the technology is not flawless. It occasionally produces inaccurate information, so human oversight remains essential. Moving forward, we plan to provide comprehensive training sessions to help you get the hang of these new systems. I encourage you to embrace this technology as a collaborative partner rather than a replacement. Now, let's look at some specific case studies from our marketing department.",
+    "questions": [
+      {
+        "id": "l1",
+        "prompt": "What was the initial concern of many employees regarding generative AI?",
+        "choices": [
+          "It would require them to work much longer hours.",
+          "It could potentially replace their current positions.",
+          "It might produce highly inaccurate financial reports.",
+          "It would focus too much on strategic initiatives."
+        ],
+        "answer": 1,
+        "explanation": "正解はBです。本文の「fearing that these tools might eventually take over their jobs（これらのツールが最終的に自分たちの仕事を奪うかもしれないと恐れて）」が「replace their current positions」と言い換えられています。Cは後の懸念事項であり、DはAIの利点に関する語句を用いた罠です。"
+      },
+      {
+        "id": "l2",
+        "prompt": "According to the speaker, what is the main benefit of using AI for routine tasks?",
+        "choices": [
+          "It allows employees to concentrate on higher-level planning.",
+          "It completely eliminates the need for human oversight.",
+          "It helps the marketing department automate overall perceptions.",
+          "It drafts emails much faster than human workers."
+        ],
+        "answer": 0,
+        "explanation": "正解はAです。本文の「By automating these repetitive tasks, our team has been able to focus on more strategic initiatives（反復作業を自動化することで、チームはより戦略的な取り組みに集中できるようになった）」を「concentrate on higher-level planning」と言い換えています。Bは本文と逆の内容です。"
+      },
+      {
+        "id": "l3",
+        "prompt": "Why does the speaker mention that human oversight is still necessary?",
+        "choices": [
+          "Because employees need comprehensive training sessions.",
+          "Because repetitive tasks cannot be automated effectively.",
+          "Because the marketing department requires manual email drafting.",
+          "Because the AI tools sometimes generate incorrect data."
+        ],
+        "answer": 3,
+        "explanation": "正解はDです。本文の「It occasionally produces inaccurate information, so human oversight remains essential（時折不正確な情報を生成するため、人間の監視は引き続き不可欠だ）」という理由が、「sometimes generate incorrect data」と言い換えられています。"
+      },
+      {
+        "id": "l4",
+        "prompt": "What is the company planning to do in the near future?",
+        "choices": [
+          "Replace the entire marketing department with AI tools.",
+          "Introduce a new system for summarizing lengthy reports.",
+          "Organize workshops to assist staff in mastering the technology.",
+          "Reduce the number of collaborative partners in the firm."
+        ],
+        "answer": 2,
+        "explanation": "正解はCです。本文の「we plan to provide comprehensive training sessions to help you get the hang of these new systems（新しいシステムのコツをつかむための包括的な研修セッションを提供する予定）」が「Organize workshops to assist staff in mastering the technology」と言い換えられています。"
+      }
+    ]
+  },
+  "dictation": {
+    "sentences": [
+      {
+        "id": "d1",
+        "text": "Generative AI can quickly analyze vast amounts of data, providing us with valuable insights.",
+        "hint": "「amounts of」の連結と、「providing us」の弱形・リンキングに注意しましょう。"
+      },
+      {
+        "id": "d2",
+        "text": "We have to make sure that the generated content aligns with our brand guidelines.",
+        "hint": "「that the」の子音の連続による脱落と、「aligns with」の連結を聞き取りましょう。"
+      },
+      {
+        "id": "d3",
+        "text": "Implementing these advanced algorithms requires a substantial investment in our infrastructure.",
+        "hint": "「requires a」と「investment in」の子音と母音のなめらかな連結に注意しましょう。"
+      },
+      {
+        "id": "d4",
+        "text": "Some experts point out that relying too heavily on AI might stifle human creativity.",
+        "hint": "「point out that」の t の音が連続して発音されにくくなる現象（脱落）に注意しましょう。"
+      },
+      {
+        "id": "d5",
+        "text": "As the technology evolves, we will need to establish clear ethical standards for its use.",
+        "hint": "「As the」の弱形と、「standards for」の自然なつながりに注意して聞き取りましょう。"
+      }
+    ]
+  },
+  "reading": {
+    "passage": "The integration of generative AI into educational environments has sparked a vigorous debate among teachers, students, and policymakers. In recent years, artificial intelligence platforms capable of producing human-like text have become easily accessible. Some educators argue that these tools pose a severe threat to academic integrity. They worry that students might rely on AI to write essays and solve complex problems, thereby bypassing the critical thinking process that is fundamental to learning. In response, a number of schools have implemented strict bans on the use of such software on their networks.\n\nConversely, other experts advocate for a more progressive approach, suggesting that generative AI should be embraced as a powerful educational aid. Rather than prohibiting the technology, they believe schools should teach students how to use it responsibly. For instance, AI can act as a personalized tutor, offering instant feedback on drafts or explaining difficult concepts in simpler terms. By learning to collaborate with these systems, students can acquire essential digital literacy skills that will be highly valued in the modern workforce.\n\nFurthermore, teachers themselves can benefit from the technology. AI can streamline administrative duties, such as grading multiple-choice exams and generating lesson plans, freeing up more time for educators to engage directly with their students. While it is true that relying blindly on AI-generated content can lead to the spread of misinformation, establishing clear guidelines can mitigate these risks. Ultimately, finding a balance between leveraging the benefits of AI and maintaining educational standards is crucial. Instead of turning a blind eye to this technological advancement, educational institutions must adapt their curricula to prepare students for an AI-driven future.",
+    "glossary": [
+      {
+        "word": "generative AI",
+        "meaning": "生成AI"
+      },
+      {
+        "word": "academic integrity",
+        "meaning": "学問的誠実性"
+      },
+      {
+        "word": "bypass",
+        "meaning": "回避する、迂回する"
+      },
+      {
+        "word": "digital literacy",
+        "meaning": "デジタルリテラシー"
+      },
+      {
+        "word": "streamline",
+        "meaning": "効率化する、合理化する"
+      },
+      {
+        "word": "mitigate",
+        "meaning": "和らげる、軽減する"
+      }
+    ],
+    "questions": [
+      {
+        "id": "r1",
+        "prompt": "What is the primary concern of some educators regarding generative AI?",
+        "choices": [
+          "It could make educational networks more vulnerable to cyberattacks.",
+          "It might prevent students from developing essential analytical skills.",
+          "It forces teachers to spend more time grading multiple-choice exams.",
+          "It produces human-like text that is often filled with misinformation."
+        ],
+        "answer": 1,
+        "explanation": "正解はBです。第1段落の「bypassing the critical thinking process（批判的思考のプロセスを回避してしまう）」という懸念が、「prevent students from developing essential analytical skills」と言い換えられています。Dは本文の語句を使っていますが、最大の懸念事項の核心ではありません。"
+      },
+      {
+        "id": "r2",
+        "prompt": "How have some schools reacted to the rise of generative AI?",
+        "choices": [
+          "They have replaced traditional teachers with personalized tutors.",
+          "They have adapted their curricula to include advanced digital literacy.",
+          "They have demanded that policymakers create clear ethical guidelines.",
+          "They have strictly prohibited the application on their campus networks."
+        ],
+        "answer": 3,
+        "explanation": "正解はDです。第1段落の「a number of schools have implemented strict bans on the use of such software on their networks（多くの学校がネットワーク上でのその種のソフトウェアの使用を厳格に禁止した）」が「strictly prohibited the application on their campus networks」と言い換えられています。"
+      },
+      {
+        "id": "r3",
+        "prompt": "According to the progressive experts, how should AI be utilized in education?",
+        "choices": [
+          "It should be used primarily to bypass complex problem-solving.",
+          "It should be treated as an interactive tool to enhance learning.",
+          "It should be banned completely until students acquire digital literacy.",
+          "It should only be accessible to teachers for administrative duties."
+        ],
+        "answer": 1,
+        "explanation": "正解はBです。第2段落の「embraced as a powerful educational aid（強力な教育支援ツールとして受け入れられるべき）」「act as a personalized tutor（個別指導者の役割を果たす）」という内容が、「an interactive tool to enhance learning」と言い換えられています。"
+      },
+      {
+        "id": "r4",
+        "prompt": "What is mentioned as an advantage of generative AI for teachers?",
+        "choices": [
+          "It helps them write better essays and solve complex problems.",
+          "It eliminates the need for establishing clear educational standards.",
+          "It allows them to devote more time to interacting with students.",
+          "It guarantees that all lesson plans are free of misinformation."
+        ],
+        "answer": 2,
+        "explanation": "正解はCです。第3段落の「freeing up more time for educators to engage directly with their students（教育者が生徒と直接関わる時間をより多く確保できる）」が「devote more time to interacting with students」と言い換えられています。"
+      },
+      {
+        "id": "r5",
+        "prompt": "What does the author conclude about the future of education and AI?",
+        "choices": [
+          "Schools must revise their programs to accommodate this new technology.",
+          "Policymakers should ignore the technological advancements for now.",
+          "The debate over academic integrity will eventually disappear.",
+          "Artificial intelligence will eventually replace the need for critical thinking."
+        ],
+        "answer": 0,
+        "explanation": "正解はAです。最終文の「educational institutions must adapt their curricula to prepare students for an AI-driven future（教育機関はAI主導の未来に向けて生徒を準備させるためにカリキュラムを適応させなければならない）」が「revise their programs to accommodate this new technology」と言い換えられています。"
+      }
+    ]
+  },
+  "writing": {
+    "prompt": "Some companies have banned their employees from using generative AI for work. Do you agree or disagree with this policy? State your opinion and provide reasons to support it.",
+    "words": [
+      60,
+      100
+    ],
+    "keyPoints": [
+      "賛成か反対かの立場が明確に示されているか。",
+      "その立場を支持する理由（生産性の向上やセキュリティの懸念など）が論理的に説明されているか。",
+      "適切な語彙と文法を用いて、指定された語数内でまとまっているか。"
+    ],
+    "modelAnswer": "I strongly disagree with the policy of banning generative AI in the workplace. First, these tools can significantly boost productivity by automating routine tasks, such as drafting emails and summarizing documents. This allows employees to focus on more creative and strategic work. Second, embracing new technologies is essential for companies to stay competitive in the modern market. Instead of completely prohibiting its use, employers should establish clear guidelines and provide training to ensure data security. By doing so, they can maximize the benefits of AI while minimizing potential risks."
+  }
+}

@@ -1,6 +1,17 @@
 {
-  "generatedAt": "2026-08-23T13:40:31.158Z",
+  "generatedAt": "2026-08-23T13:49:07.104Z",
   "days": [
+    {
+      "date": "2026-08-24",
+      "topic": "生成AI",
+      "toeic": 730,
+      "sections": [
+        "listening",
+        "dictation",
+        "reading",
+        "writing"
+      ]
+    },
     {
       "date": "2026-08-23",
       "topic": "リモートワーク",
