@@ -19,6 +19,18 @@ jobs:
         with:
           node-version: '22'
 
+      - name: Check API key
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          if [ -z "$GEMINI_API_KEY" ]; then
+            echo "::error::GEMINI_API_KEY が空です。Settings → Secrets and variables → Actions の" \
+                 "「Repository secrets」に GEMINI_API_KEY という名前で登録してください" \
+                 "(Environments / Dependabot / Codespaces のタブではありません)。"
+            exit 1
+          fi
+          echo "GEMINI_API_KEY: ${#GEMINI_API_KEY} 文字"
+
       - name: Grade with Gemini
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
