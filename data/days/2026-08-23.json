@@ -1,0 +1,203 @@
+{
+  "date": "2026-08-23",
+  "topic": {
+    "id": "remote-work",
+    "label": "リモートワーク",
+    "en": "remote work"
+  },
+  "level": {
+    "toeic": 730,
+    "cefr": "B2"
+  },
+  "listening": {
+    "title": "A Discussion on Remote Work Policies",
+    "script": "Sarah: Mark, I wanted to discuss our new remote work policy. Starting next month, we are asking everyone to come into the office at least two days a week.\nMark: Oh, I see. I was actually hoping to continue working from home full time. It has really helped me focus on my projects without any interruptions.\nSarah: I completely understand the benefits of remote work. However, the executive team believes that in person collaboration is crucial for brainstorming and team building.\nMark: That makes sense. I suppose we can schedule our team meetings on the days we are in the office. Which days are we expected to come in?\nSarah: We are flexible on that. You can choose any two days from Tuesday to Thursday. Mondays and Fridays are entirely remote.\nMark: That sounds like a fair compromise. I will update my calendar and let the rest of the team know about my schedule.",
+    "questions": [
+      {
+        "id": "l1",
+        "prompt": "What is the main topic of the conversation?",
+        "choices": [
+          "A new policy requiring office attendance.",
+          "The installation of new communication software.",
+          "How to improve internet connections at home.",
+          "The promotion of the employee to a manager."
+        ],
+        "answer": 0,
+        "explanation": "会話の冒頭でSarahが「Starting next month, we are asking everyone to come into the office at least two days a week.（来月から、週に少なくとも2日は出社するよう全員にお願いしている）」と述べており、オフィス出社を求める新規定が主な話題であることがわかります。"
+      },
+      {
+        "id": "l2",
+        "prompt": "Why did Mark hope to continue working from home full time?",
+        "choices": [
+          "He wanted to save money on transportation.",
+          "He disliked waking up early in the morning.",
+          "He could concentrate on his work without being interrupted.",
+          "He needed to take care of his family members."
+        ],
+        "answer": 2,
+        "explanation": "Markは「It has really helped me focus on my projects without any interruptions.（誰にも邪魔されずにプロジェクトに集中するのにとても役立っている）」と述べており、集中できる環境であることを理由に挙げています。"
+      },
+      {
+        "id": "l3",
+        "prompt": "According to Sarah, why does the executive team value in person work?",
+        "choices": [
+          "It makes it easier to monitor employee attendance.",
+          "It is important for generating ideas and building relationships.",
+          "It reduces the company's electricity expenses.",
+          "It prevents important company data from being leaked."
+        ],
+        "answer": 1,
+        "explanation": "Sarahは「the executive team believes that in person collaboration is crucial for brainstorming and team building.（経営陣は、対面での協力がブレインストーミングやチームビルディングに不可欠だと考えている）」と述べており、アイデア出しや関係構築が理由です。"
+      },
+      {
+        "id": "l4",
+        "prompt": "Which days are employees allowed to work completely remotely?",
+        "choices": [
+          "Tuesday and Wednesday",
+          "Wednesday and Thursday",
+          "Thursday and Friday",
+          "Monday and Friday"
+        ],
+        "answer": 3,
+        "explanation": "出社日についてSarahが「Mondays and Fridays are entirely remote.（月曜日と金曜日は完全にリモートです）」と明言しています。"
+      }
+    ]
+  },
+  "dictation": {
+    "sentences": [
+      {
+        "id": "d1",
+        "text": "Most employees find it easier to concentrate when they work remotely.",
+        "hint": "「find it」の子音と母音の連結、「easier to」の「to」の弱形に注意しましょう。"
+      },
+      {
+        "id": "d2",
+        "text": "We need to figure out a better way to communicate online.",
+        "hint": "「figure out」の連結と、「better」のフラップT（ラ行のような音）がポイントです。"
+      },
+      {
+        "id": "d3",
+        "text": "The company has decided to offer flexible working hours for everyone.",
+        "hint": "「decided to」で音が重なる同化現象と、「for」の弱形を聞き取りましょう。"
+      },
+      {
+        "id": "d4",
+        "text": "Working from home can sometimes blur the line between personal and professional life.",
+        "hint": "「blur the」の滑らかな連結と、「between」の前置詞の弱形に気をつけましょう。"
+      },
+      {
+        "id": "d5",
+        "text": "Setting up a dedicated workspace is essential for maintaining your productivity.",
+        "hint": "「Setting up」のフラップTと連結、「essential for」の連結と弱形が連続します。"
+      }
+    ]
+  },
+  "reading": {
+    "passage": "The transition to remote work has significantly altered the traditional corporate landscape. Before the pandemic, commuting to a central office was considered the standard way of doing business. However, recent surveys indicate that a majority of professionals now prefer a hybrid model, which combines the flexibility of remote work with the collaborative benefits of in-person interactions.\n\nOne of the primary advantages of remote work is the elimination of daily commutes. This change not only saves time and reduces transportation costs but also contributes to a lower carbon footprint. Furthermore, employees often report higher job satisfaction and improved mental well-being due to a better work-life balance. Without the typical office distractions, many individuals find themselves more productive and capable of focusing on complex tasks.\n\nDespite these benefits, remote work presents several challenges. Managers frequently express concerns about maintaining team cohesion and company culture when employees are physically separated. The lack of spontaneous conversations by the water cooler can lead to feelings of isolation and hinder creative brainstorming sessions. To address these issues, many organizations are investing in advanced communication tools and organizing regular virtual team-building activities.\n\nAs companies navigate this new era, it is evident that a one-size-fits-all approach is no longer viable. Employers must actively listen to their workforce and adapt their policies to accommodate diverse needs. Ultimately, the future of work lies in creating flexible environments that empower employees to perform at their best, regardless of their physical location.",
+    "glossary": [
+      {
+        "word": "transition",
+        "meaning": "移行、変化"
+      },
+      {
+        "word": "corporate landscape",
+        "meaning": "企業を取り巻く環境"
+      },
+      {
+        "word": "hybrid model",
+        "meaning": "ハイブリッドモデル（出社と在宅を組み合わせた働き方）"
+      },
+      {
+        "word": "carbon footprint",
+        "meaning": "二酸化炭素排出量"
+      },
+      {
+        "word": "team cohesion",
+        "meaning": "チームの結束力"
+      },
+      {
+        "word": "spontaneous",
+        "meaning": "自然発生的な、自発的な"
+      },
+      {
+        "word": "viable",
+        "meaning": "実行可能な、実用的な"
+      }
+    ],
+    "questions": [
+      {
+        "id": "r1",
+        "prompt": "What is the main purpose of the passage?",
+        "choices": [
+          "To argue that offices should be completely abolished.",
+          "To discuss the impacts and challenges of remote work.",
+          "To explain how to use new communication tools.",
+          "To compare the transportation costs of different companies."
+        ],
+        "answer": 1,
+        "explanation": "パッセージ全体を通して、リモートワークの利点（通勤の排除、生産性向上など）と課題（チームの結束力の低下など）について議論しています。したがって「リモートワークの影響と課題について議論すること」が正解です。"
+      },
+      {
+        "id": "r2",
+        "prompt": "What is mentioned as a benefit of eliminating the daily commute?",
+        "choices": [
+          "It helps reduce the carbon footprint.",
+          "It increases the physical strength of employees.",
+          "It allows companies to lower employee salaries.",
+          "It creates more job opportunities in rural areas."
+        ],
+        "answer": 0,
+        "explanation": "第2段落で「This change not only saves time and reduces transportation costs but also contributes to a lower carbon footprint.（この変化は時間とお金を節約するだけでなく、二酸化炭素排出量の削減にも貢献する）」と述べられています。"
+      },
+      {
+        "id": "r3",
+        "prompt": "What is a common concern among managers regarding remote work?",
+        "choices": [
+          "Employees might take too many sick days.",
+          "It is difficult to track the working hours accurately.",
+          "Technical issues often disrupt daily operations.",
+          "It can be hard to maintain company culture and team unity."
+        ],
+        "answer": 3,
+        "explanation": "第3段落で「Managers frequently express concerns about maintaining team cohesion and company culture when employees are physically separated.（マネージャーは、従業員が物理的に離れている際、チームの結束力と企業文化を維持することについてしばしば懸念を表明する）」と記述されています。"
+      },
+      {
+        "id": "r4",
+        "prompt": "How are some organizations trying to solve the problem of employee isolation?",
+        "choices": [
+          "By forcing everyone to return to the office full-time.",
+          "By increasing the salaries of remote workers.",
+          "By investing in communication tools and virtual activities.",
+          "By hiring more managers to supervise the staff."
+        ],
+        "answer": 2,
+        "explanation": "第3段落の最後で「To address these issues, many organizations are investing in advanced communication tools and organizing regular virtual team-building activities.（これらの問題に対処するため、多くの組織が高度なコミュニケーションツールに投資し、定期的なバーチャルチームビルディング活動を企画している）」と説明されています。"
+      },
+      {
+        "id": "r5",
+        "prompt": "What does the author suggest employers should do in the future?",
+        "choices": [
+          "Adapt their policies to meet the diverse needs of their employees.",
+          "Implement a strict one-size-fits-all approach for everyone.",
+          "Stop organizing team-building activities to save money.",
+          "Focus only on the physical location of the workforce."
+        ],
+        "answer": 0,
+        "explanation": "最終段落で「Employers must actively listen to their workforce and adapt their policies to accommodate diverse needs.（雇用主は従業員の声に積極的に耳を傾け、多様なニーズに対応できるよう方針を適応させなければならない）」と提案されています。"
+      }
+    ]
+  },
+  "writing": {
+    "prompt": "Do you think working from home is more effective than working in an office? State your opinion and provide two reasons to support it.",
+    "words": [
+      60,
+      100
+    ],
+    "keyPoints": [
+      "自分の意見（賛成または反対）が冒頭で明確に述べられているか。",
+      "意見を裏付ける理由が2つ、論理的に提示されているか。",
+      "指定された語数制限（60〜100語）を満たし、適切な語彙や構文が使われているか。"
+    ],
+    "modelAnswer": "I believe that working from home is more effective than working in an office for two main reasons. First, it eliminates the need for a daily commute. This saves a significant amount of time and energy, allowing employees to start their workday feeling refreshed. Second, a home environment often has fewer distractions compared to a busy office. Without unexpected interruptions from colleagues, workers can concentrate better on their tasks and complete them more efficiently. Therefore, remote work leads to higher productivity and a better work-life balance."
+  }
+}

@@ -1,6 +1,17 @@
 {
-  "generatedAt": "2026-08-20T06:16:24.571Z",
+  "generatedAt": "2026-08-23T13:40:31.158Z",
   "days": [
+    {
+      "date": "2026-08-23",
+      "topic": "リモートワーク",
+      "toeic": 730,
+      "sections": [
+        "listening",
+        "dictation",
+        "reading",
+        "writing"
+      ]
+    },
     {
       "date": "2026-08-20",
       "topic": "宇宙開発",
