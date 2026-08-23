@@ -2,7 +2,12 @@ name: List Gemini models
 
 # 使えるモデル名は API キーごとに違う (新規ユーザーには公開されないモデルがある)。
 # data/config.json の generator.model を決めるときはこれを実行して一覧を見る。
-on: workflow_dispatch
+on:
+  workflow_dispatch:
+    inputs:
+      check:
+        description: '疎通を試すモデル (カンマ区切り。空なら config の2つ)'
+        required: false
 
 jobs:
   models:
@@ -14,4 +19,4 @@ jobs:
           node-version: '22'
       - env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: node scripts/gemini.mjs --models
+        run: node scripts/gemini.mjs --models --check=${{ inputs.check }}
