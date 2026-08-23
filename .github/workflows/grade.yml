@@ -2,18 +2,24 @@ name: Grade submission
 
 on:
   issues:
-    types: [opened, labeled]
+    # labeled だけを見る。ラベル付きで Issue を作ると opened と labeled の
+    # 両方が発火するため、両方を拾うと同じ処理が二重に走る。
+    types: [labeled]
 
 permissions:
   contents: read
   issues: write
+
+concurrency:
+  # 同じ Issue に対する実行を直列化する (data/ への push が競合しないように)。
+  group: grade-${{ github.event.issue.number }}
 
 jobs:
   grade:
     # ラベル "grade" が付いた、所有者自身の Issue だけを採点対象にする
     # (API の無料枠を他人に消費されないように)。
     if: >
-      contains(github.event.issue.labels.*.name, 'grade') &&
+      github.event.label.name == 'grade' &&
       github.event.issue.user.login == github.repository_owner
     runs-on: ubuntu-latest
     steps:

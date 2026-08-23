@@ -2,18 +2,24 @@ name: Apply settings
 
 on:
   issues:
-    types: [opened, labeled]
+    # labeled だけを見る。ラベル付きで Issue を作ると opened と labeled の
+    # 両方が発火するため、両方を拾うと同じ処理が二重に走る。
+    types: [labeled]
 
 permissions:
   contents: write
   issues: write
+
+concurrency:
+  # 同じ Issue に対する実行を直列化する (data/ への push が競合しないように)。
+  group: settings-${{ github.event.issue.number }}
 
 jobs:
   apply:
     # data/*.json を書き換えるので、ラベルに加えて発行者もリポジトリ所有者に限る。
     # (ラベル付けには元々 write 権限が要るが、二重に絞っておく)
     if: >
-      contains(github.event.issue.labels.*.name, 'settings') &&
+      github.event.label.name == 'settings' &&
       github.event.issue.user.login == github.repository_owner
     runs-on: ubuntu-latest
     steps:

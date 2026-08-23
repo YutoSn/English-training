@@ -129,6 +129,13 @@ config と topics に書き戻す。`applyPayload` は純粋関数で、書き�
 - テーマの `en` は任意。省略時は `apply-settings.mjs` が Gemini に訳させてから
   `slugify` で id にする。
 - `settings.yml` と `grade.yml` は発行者がリポジトリ所有者の Issue しか処理しない。
+- **Issue 起動は `types: [labeled]` だけを見る**。ラベル付きで Issue を作ると
+  `opened` と `labeled` が両方発火するので、両方拾うと同じ処理が二重に走り、
+  2つの実行が同じコミットを push しようとして競合する。判定も
+  `github.event.label.name` (今回付いたラベル) で行う — `issue.labels.*.name` を
+  見ると複数ラベル同時付与で再び多重起動する。
+- Issue 起動のワークフローは**既定ブランチのファイル**が使われる。設定タブの経路を
+  試すときは、既定ブランチにも変更が入っているか確かめること。
 
 ### 採点の経路
 
@@ -156,9 +163,9 @@ Issue 経由の採点が日付を取り違える。採点プロンプトには�
 
 - `daily.yml` — 21:00 UTC (= 06:00 JST) に `generate-day.mjs` → テスト → コミット。
   生成済みの日は終了コード 2 を見てスキップする (失敗にしない)。
-- `grade.yml` — `grade` ラベル付き Issue に反応し、`grade.mjs` の出力を
+- `grade.yml` — `grade` ラベルが付いた Issue に反応し、`grade.mjs` の出力を
   `gh issue comment` で返す。失敗時も Issue にその旨をコメントする。
-- `settings.yml` — `settings` ラベル付き Issue を `apply-settings.mjs` に通し、
+- `settings.yml` — `settings` ラベルが付いた Issue を `apply-settings.mjs` に通し、
   変更をコミットして Issue にコメント + クローズする。
 - `pages.yml` — リポジトリ全体をそのまま Pages に配信する (`index.html`・`web/`・`data/` が
   すべて必要なため、サブディレクトリ配信にはできない)。
