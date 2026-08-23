@@ -37,7 +37,11 @@ async function post(path, body) {
     const detail = await res.text();
     // 429 = 無料枠のレート上限、5xx = 一時障害。どちらも待てば通ることがある。
     const retriable = res.status === 429 || res.status >= 500;
-    throw new GeminiError(`Gemini API ${res.status}: ${detail.slice(0, 500)}`, {
+    // 404 はモデル名の誤りか、そのキーに公開されていないモデル。使える名前は
+    // キーごとに違うので、一覧の出し方を添える。
+    const hint =
+      res.status === 404 ? '\n使えるモデル名は `node --run models` で確認できます。' : '';
+    throw new GeminiError(`Gemini API ${res.status}: ${detail.slice(0, 500)}${hint}`, {
       status: res.status,
       retriable,
     });

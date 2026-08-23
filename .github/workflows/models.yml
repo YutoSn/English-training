@@ -1,0 +1,17 @@
+name: List Gemini models
+
+# 使えるモデル名は API キーごとに違う (新規ユーザーには公開されないモデルがある)。
+# data/config.json の generator.model を決めるときはこれを実行して一覧を見る。
+on: workflow_dispatch
+
+jobs:
+  models:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: node scripts/gemini.mjs --models
