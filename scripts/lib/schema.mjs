@@ -109,7 +109,15 @@ export function daySchema(sections) {
     properties: {
       id: string(`${kind}1 のような連番 id`),
       prompt: string('英語の設問文'),
-      choices: { type: 'ARRAY', items: string('選択肢 (英語)'), minItems: 4, maxItems: 4 },
+      choices: {
+        type: 'ARRAY',
+        items: string('選択肢 (英語)'),
+        description:
+          '4択。誤答は「部分的に正しい」「言い換えの罠」「本文にない情報」を混ぜ、' +
+          '少なくとも1つは本文の語句を含める',
+        minItems: 4,
+        maxItems: 4,
+      },
       answer: { type: 'INTEGER', description: '正解の choices インデックス (0-3)' },
       explanation: string('日本語の解説。根拠となる英文を引用する'),
     },
