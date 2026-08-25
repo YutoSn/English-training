@@ -124,3 +124,40 @@ export function isApplied(payload, state) {
   const pending = pendingChanges(payload, state);
   return pending.toeic === null && pending.topics.length === 0;
 }
+
+/* ---------- 問題作成のリクエスト ---------- */
+
+const GEN_OPEN = '<!-- generate';
+
+/** テーマ1つを添えた生成リクエストの Issue 本文。 */
+export function renderGenerateBody(topicText = '') {
+  const topic = String(topicText).trim();
+  return [
+    topic ? `- テーマ: ${topic}` : '- テーマ: おまかせ (ネタ帳から選ぶ)',
+    '',
+    'この Issue は自動で処理され、完成したらコメントが付きます。',
+    '',
+    GEN_OPEN,
+    JSON.stringify(topic ? { topic } : {}),
+    CLOSE,
+  ].join('\n');
+}
+
+export function generateIssueUrl(repo, topicText = '') {
+  const topic = String(topicText).trim();
+  const title = `問題作成${topic ? ` (${topic})` : ''}`;
+  return `https://github.com/${repo}/issues/new?labels=generate&title=${encodeURIComponent(title)}&body=${encodeURIComponent(renderGenerateBody(topic))}`;
+}
+
+export function extractGeneratePayload(body) {
+  const start = String(body ?? '').indexOf(GEN_OPEN);
+  if (start === -1) return null;
+  const end = body.indexOf(CLOSE, start);
+  if (end === -1) return null;
+  try {
+    const parsed = JSON.parse(body.slice(start + GEN_OPEN.length, end).trim());
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    return null;
+  }
+}

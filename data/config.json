@@ -15,7 +15,7 @@
   "sections": {
     "listening": {
       "enabled": true,
-      "questions": 4,
+      "questions": 2,
       "scriptWords": [
         130,
         180
@@ -23,11 +23,11 @@
     },
     "dictation": {
       "enabled": true,
-      "sentences": 5
+      "sentences": 2
     },
     "reading": {
       "enabled": true,
-      "questions": 5,
+      "questions": 2,
       "passageWords": [
         220,
         320

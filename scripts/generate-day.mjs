@@ -1,18 +1,19 @@
 #!/usr/bin/env node
 /**
- * Generates one day set with the Gemini API and writes data/days/<date>.json.
+ * Gemini で学習セットを1つ作り、data/days/<setId>.json に書く。
  *
- *   node scripts/generate-day.mjs                      # today (JST)
+ *   node scripts/generate-day.mjs                        # ネタ帳から自動でテーマを選ぶ
+ *   node scripts/generate-day.mjs --topic-text=深海探査   # テーマを指定 (日本語可・新規可)
+ *   node scripts/generate-day.mjs --topic=climate-tech   # ネタ帳の id を指定
  *   node scripts/generate-day.mjs --date=2026-09-01
- *   node scripts/generate-day.mjs --topic=climate-tech
- *   node scripts/generate-day.mjs --model=gemini-2.5-flash
+ *   node scripts/generate-day.mjs --model=gemini-flash-latest
  *   node scripts/generate-day.mjs --from-file=content.json   # API を呼ばず手元の JSON を採用
  *
- * Requires GEMINI_API_KEY unless --from-file is given.
- * Exits 2 when the day already exists, so the daily workflow can skip quietly.
+ * setId は同じ日に何度でも作れるよう `YYYY-MM-DD`, `YYYY-MM-DD-2`, ... と振る。
+ * 生成できた setId は stdout の最終行に出す (ワークフローが拾う)。
+ * --from-file 以外は GEMINI_API_KEY が要る。
  */
-import fs from 'node:fs';
-import { readJson, writeJson, dayPath, todayJst } from './lib/paths.mjs';
+import { readJson, writeJson, dayPath, todayJst, nextSetId } from './lib/paths.mjs';
 import { planDay, assembleDay } from './lib/plan.mjs';
 import { validateDay, daySchema } from './lib/schema.mjs';
 import { finalizeDay } from './lib/finalize.mjs';
@@ -20,8 +21,8 @@ import { generateWithRetry, GeminiError } from './lib/gemini.mjs';
 
 const args = Object.fromEntries(
   process.argv.slice(2).map((a) => {
-    const [k, v = true] = a.replace(/^--/, '').split('=');
-    return [k, v];
+    const [k, ...rest] = a.replace(/^--/, '').split('=');
+    return [k, rest.length ? rest.join('=') : true];
   }),
 );
 
@@ -31,23 +32,11 @@ if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
   process.exit(1);
 }
 
-if (fs.existsSync(dayPath(date)) && !args.force) {
-  console.error(`${date} は既に存在します (--force で上書き)`);
-  process.exit(2);
-}
-
-const plan = planDay(date, { topicId: args.topic || undefined });
-const { generator } = plan.config;
-const model = args.model ?? generator.model;
-const maxAttempts = Number(args.attempts ?? generator.maxAttempts ?? 3);
-
 /**
- * Structured output makes malformed JSON rare but not impossible, and it cannot
- * enforce the rules validateDay checks (duplicate dictation lines, answer index
- * in range). So: generate, validate, and on failure hand the errors back to the
- * model rather than giving up.
+ * 構造化出力でも「ディクテーション文がスクリプトと重複」「answer が範囲外」までは
+ * 防げないので、検証に落ちたらエラーを添えて作り直す。
  */
-async function generateContent() {
+async function generateContent(plan, { model, maxAttempts }) {
   const schema = daySchema(plan.config.sections);
   let prompt = plan.prompt;
 
@@ -71,7 +60,7 @@ async function generateContent() {
     }
 
     const day = assembleDay(plan, content);
-    const { ok, errors } = validateDay(day, { date });
+    const { ok, errors } = validateDay(day, { setId: date });
     if (ok) return day;
 
     console.error(`  検証エラー: ${errors.join(' / ')}`);
@@ -82,15 +71,27 @@ async function generateContent() {
 }
 
 try {
+  const plan = await planDay(date, {
+    topicId: args.topic || undefined,
+    // 利用者が打ち込んだ自由文はシェルを経由させたくないので環境変数でも受ける。
+    topicText: args['topic-text'] || process.env.TOPIC_TEXT || undefined,
+  });
+  const { generator } = plan.config;
+  const model = args.model ?? generator.model;
+
   const day = args['from-file']
     ? assembleDay(plan, readJson(args['from-file']))
-    : await generateContent();
+    : await generateContent(plan, {
+        model,
+        maxAttempts: Number(args.attempts ?? generator.maxAttempts ?? 3),
+      });
 
-  writeJson(dayPath(date), day);
-  const { index } = finalizeDay(date);
-  console.log(`OK: ${date} (${day.topic.label}) — 全 ${index.days.length} 日分`);
+  const setId = nextSetId(date);
+  writeJson(dayPath(setId), day);
+  const { index } = finalizeDay(setId);
+  console.error(`OK: ${setId} (${day.topic.label}) — 全 ${index.days.length} セット`);
+  console.log(setId);
 } catch (err) {
-  if (err instanceof GeminiError) console.error(`Gemini API: ${err.message}`);
-  else console.error(err.message);
+  console.error(err instanceof GeminiError ? `Gemini API: ${err.message}` : err.message);
   process.exit(1);
 }

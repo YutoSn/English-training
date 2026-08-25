@@ -10,7 +10,7 @@
  */
 import fs from 'node:fs';
 import { readJson, CONFIG_PATH } from './lib/paths.mjs';
-import { buildGradePrompt, resolveDate } from './lib/grade.mjs';
+import { buildGradePrompt, resolveSetId } from './lib/grade.mjs';
 import { generateWithRetry, GeminiError } from './lib/gemini.mjs';
 
 const args = Object.fromEntries(
@@ -27,11 +27,11 @@ if (!submission.trim()) {
 }
 
 try {
-  const date = resolveDate(submission, {
+  const setId = resolveSetId(submission, {
     fallbackText: process.env.ISSUE_TITLE ?? '',
-    explicit: args.date || undefined,
+    explicit: args.set || args.date || undefined,
   });
-  const prompt = buildGradePrompt({ submission, date });
+  const prompt = buildGradePrompt({ submission, setId });
 
   if (args['prompt-only']) {
     console.log(prompt);
@@ -40,7 +40,7 @@ try {
 
   const { generator } = readJson(CONFIG_PATH);
   const model = args.model ?? generator.gradeModel ?? generator.model;
-  console.error(`採点中 — ${model} / ${date}`);
+  console.error(`採点中 — ${model} / ${setId}`);
 
   // Grading is judgement, not invention: keep the temperature low so the same
   // answer sheet does not swing between scores.

@@ -12,7 +12,8 @@ node --run validate                      # data/days/*.json をスキーマ検�
 node --run serve                         # http://localhost:8000 で静的配信
 node --run models                        # Gemini の疎通確認 + 利用可能モデル一覧
 
-node scripts/generate-day.mjs --date=2026-09-01     # Gemini で生成 → 検証 → index 更新まで
+node scripts/generate-day.mjs                       # Gemini で生成 → 検証 → index 更新まで
+node scripts/generate-day.mjs --topic-text=深海探査  # テーマ指定 (日本語可・新規可)
 node scripts/generate-day.mjs --from-file=x.json    # API を使わず手元の JSON を採用
 node scripts/new-day.mjs --date=...                 # プロンプトだけ stdout に出す
 node scripts/grade.mjs --file=解答.md [--prompt-only]
@@ -31,11 +32,13 @@ node scripts/apply-settings.mjs --file=issue.md [--dry-run]   # 設定 Issue を
 **静的サイト + 生成済み JSON + LLM** の3層。サーバもデータベースもない。
 
 ```
+                アプリ「作成」タブ ──▶ GitHub Issue (generate)
+                                                        │
 scripts/lib/plan.mjs ──プロンプト+responseSchema──▶ Gemini API
                                                         │
                        generate-day.mjs (検証して落ちたら再生成)
                                                         ▼
-                                            data/days/YYYY-MM-DD.json
+                                            data/days/<setId>.json
                                                         │
                                         finalize-day.mjs ├─▶ data/index.json
                                                         │   data/topics.json (usedCount 更新)
@@ -68,10 +71,16 @@ scripts/lib/plan.mjs ──プロンプト+responseSchema──▶ Gemini API
   「ディクテーション文がスクリプトと重複」「answer が範囲外」までは防げないため。
   試行回数は `data/config.json` の `generator.maxAttempts`。
 - **`data/index.json` は生成物**。手で編集しない。`buildIndex()` だけが書く。
+- **ファイル名はセット id で、日付そのものではない**。`YYYY-MM-DD`、同じ日の2本目以降は
+  `YYYY-MM-DD-2`, `-3` (`nextSetId`)。オンデマンド生成で1日に何セットでも作れるため。
+  `day.date` は id の日付部分と一致していることを `validateDay` が確かめる。
+  解答の localStorage キーも採点の `<!-- set:... -->` もこの id。
 - **日付ファイルを書いたら必ず `finalizeDay()` を通す**。飛ばすとトピックが
   「未使用」のまま残り、`index.json` も更新されない。
-- **トピック選択は日付シードで決定的** (`seededRandom`)。同じ日付なら何度実行しても同じ
-  トピックが選ばれるので、生成をやり直しても内容の一貫性が保てる。
+- **テーマの決め方は3通り** (`resolveTopic`): id 指定 / 自由入力 / 未指定。
+  自由入力は既存テーマと照合し、新しければ英語フレーズを訳して新規テーマにする
+  (日本語だけで入力できるように)。未指定のときだけ日付シードで決定的に選ぶ
+  (`seededRandom`)。新しいテーマは `finalizeDay` がネタ帳に足す。
 - **日付境界は JST** (`todayJst`)。UTC で動く Actions ランナーの「今日」とはずれる。
 
 ### Gemini クライアント
@@ -114,6 +123,17 @@ scripts/lib/plan.mjs ──プロンプト+responseSchema──▶ Gemini API
 存在しないので、リスニング教材は「読み上げやすい地の文」で書く必要がある
 (記号・箇条書き・URL などを入れない)。
 
+### 生成完了をアプリが検知する仕組み
+
+生成は Actions 側で走るので、アプリは Issue を出したあと
+`web/github.js` の `fetchFromGitHub()` で `data/index.json` を繰り返し読み、
+知らないセット id が増えたら開く (`pollForNewSet`)。
+
+**Pages のコピーではなく GitHub API を見るのが要点**。Pages は CDN 越しで、
+コミット直後の index.json がしばらく古いまま返る。未認証 API の上限は
+1時間60回なので、間隔は8秒・最大20回に抑えてある。待機状態は localStorage に
+置き、GitHub アプリへ移動して戻っても再開できる。
+
 ### 設定変更の経路
 
 アプリの「設定」タブは `data/*.json` を直接書けない (静的配信 + localStorage は
@@ -144,9 +164,9 @@ config と topics に書き戻す。`applyPayload` は純粋関数で、書き�
 ディクテーションは `diffWords` の語単位 LCS 差分までがクライアントの担当
 (句読点と大文字小文字は `normalize` が無視する)。英作文は LLM のみ。
 
-`buildSubmission()` が作る Markdown が採点の入力。末尾に `<!-- date:YYYY-MM-DD -->` を
-埋め込んでおり、`resolveDate()` はこれで問題ファイルを特定する。この印を消すと
-Issue 経由の採点が日付を取り違える。採点プロンプトには問題 JSON 全文を埋め込むので
+`buildSubmission()` が作る Markdown が採点の入力。末尾に `<!-- set:<setId> -->` を
+埋め込んでおり、`resolveSetId()` はこれで問題ファイルを特定する (`date:` は旧形式で、
+既存の Issue のために読めるようにしてある)。この印を消すと採点が別のセットを見る。採点プロンプトには問題 JSON 全文を埋め込むので
 (`buildGradePrompt`)、モデルにファイル読み取り能力は要らない。
 
 ## 教材を書くときの基準
@@ -162,8 +182,10 @@ Issue 経由の採点が日付を取り違える。採点プロンプトには�
 
 ## GitHub Actions
 
-- `daily.yml` — 21:00 UTC (= 06:00 JST) に `generate-day.mjs` → テスト → コミット。
-  生成済みの日は終了コード 2 を見てスキップする (失敗にしない)。
+- `generate.yml` — `generate` ラベルが付いた Issue (アプリの「作成」タブが出す) と
+  手動実行に反応し、`generate-day.mjs` → テスト → コミット → Issue にコメント。
+  **定期実行はしない** — 作るのは利用者が押したときだけ。
+  自由入力のテーマはシェルに渡さず `TOPIC_TEXT` 環境変数で受け渡す。
 - `grade.yml` — `grade` ラベルが付いた Issue に反応し、`grade.mjs` の出力を
   `gh issue comment` で返す。失敗時も Issue にその旨をコメントする。
 - `settings.yml` — `settings` ラベルが付いた Issue を `apply-settings.mjs` に通し、
@@ -171,4 +193,4 @@ Issue 経由の採点が日付を取り違える。採点プロンプトには�
 - `pages.yml` — リポジトリ全体をそのまま Pages に配信する (`index.html`・`web/`・`data/` が
   すべて必要なため、サブディレクトリ配信にはできない)。
 
-`daily.yml` と `grade.yml` は `GEMINI_API_KEY` シークレットに依存する。
+`generate.yml` `grade.yml` `settings.yml` は `GEMINI_API_KEY` シークレットに依存する。

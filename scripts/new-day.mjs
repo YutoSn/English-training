@@ -10,8 +10,7 @@
  *   node scripts/new-day.mjs --json          # print the picked topic only
  *   node scripts/new-day.mjs --print-date    # print the resolved date and exit
  */
-import fs from 'node:fs';
-import { dayPath, todayJst } from './lib/paths.mjs';
+import { todayJst } from './lib/paths.mjs';
 import { planDay } from './lib/plan.mjs';
 
 const args = Object.fromEntries(
@@ -32,13 +31,11 @@ if (args['print-date']) {
   process.exit(0);
 }
 
-if (fs.existsSync(dayPath(date)) && !args.force) {
-  console.error(`${date} は既に存在します (--force で上書き用プロンプトを出力)`);
-  process.exit(2);
-}
-
 try {
-  const { level, topic, prompt } = planDay(date, { topicId: args.topic || undefined });
+  const { level, topic, prompt } = await planDay(date, {
+    topicId: args.topic || undefined,
+    topicText: args['topic-text'] || undefined,
+  });
   console.log(args.json ? JSON.stringify({ date, level, topic }, null, 2) : prompt);
 } catch (err) {
   console.error(err.message);

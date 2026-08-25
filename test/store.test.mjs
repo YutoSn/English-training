@@ -32,8 +32,9 @@ test('countWords は空白を無視する', () => {
   assert.equal(countWords('  one   two \n three '), 3);
 });
 
-test('issueUrl は date マーカー付きの本文を作る', () => {
-  const url = issueUrl('owner/repo', day, 'body');
+test('issueUrl は set マーカー付きの本文を作る', () => {
+  const url = issueUrl('owner/repo', day, 'body', '2026-08-20-2');
   assert.ok(url.startsWith('https://github.com/owner/repo/issues/new?labels=grade'));
-  assert.ok(decodeURIComponent(url).includes('<!-- date:2026-08-20 -->'));
+  assert.ok(decodeURIComponent(url).includes('<!-- set:2026-08-20-2 -->'));
+  assert.ok(decodeURIComponent(url).includes('採点依頼 2026-08-20-2'));
 });

@@ -1,29 +1,61 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { ROOT, readJson, CONFIG_PATH } from './paths.mjs';
-import { loadTopics, pickTopics } from './topics.mjs';
+import { loadTopics, pickTopics, slugify } from './topics.mjs';
 import { levelProfile } from './level.mjs';
+import { translateLabels } from './translate.mjs';
 
 /**
  * Everything needed to produce one day set: which topic, at what level, and the
  * filled-in prompt. Shared by new-day.mjs (prints the prompt) and
  * generate-day.mjs (sends it to Gemini), so the two can never drift apart.
  */
-export function planDay(date, { topicId } = {}) {
+/**
+ * テーマの決め方は3通り:
+ *   topicId   — ネタ帳の id を指定 (CLI / 再生成)
+ *   topicText — 利用者が打ち込んだ自由入力。既存と一致すればそれを使い、
+ *               新しければ英語フレーズを訳して新規テーマにする
+ *   どちらも無し — 日付シードでネタ帳から選ぶ
+ *
+ * 訳が要るときだけ API を呼ぶので async。
+ */
+export async function resolveTopic(topics, { date, topicId, topicText, config }) {
+  if (topicId) {
+    const found = topics.find((t) => t.id === topicId);
+    if (!found) throw new Error(`未知のトピック: ${topicId}`);
+    return found;
+  }
+
+  const text = String(topicText ?? '').trim();
+  if (!text) {
+    return pickTopics(topics, {
+      date,
+      count: config.topicsPerDay,
+      recentWindow: config.recentTopicWindow,
+    })[0];
+  }
+
+  const key = text.toLowerCase();
+  const existing = topics.find(
+    (t) => t.label === text || t.id === slugify(text) || String(t.en).toLowerCase() === key,
+  );
+  if (existing) return existing;
+
+  // 英語で打たれていればそのまま使い、日本語なら訳す。
+  const looksEnglish = /^[\x20-\x7e]+$/.test(text);
+  const en = looksEnglish ? text : (await translateLabels([text]))[text];
+  if (!en) throw new Error(`"${text}" の英語フレーズを決められませんでした`);
+
+  const id = slugify(en);
+  if (!id) throw new Error(`"${en}" から id を作れませんでした`);
+  return { id, label: text, en };
+}
+
+export async function planDay(date, { topicId, topicText } = {}) {
   const config = readJson(CONFIG_PATH);
   const topics = loadTopics();
   const level = levelProfile(config.level.toeic);
-
-  const topic = topicId
-    ? (topics.find((t) => t.id === topicId) ??
-      (() => {
-        throw new Error(`未知のトピック: ${topicId}`);
-      })())
-    : pickTopics(topics, {
-        date,
-        count: config.topicsPerDay,
-        recentWindow: config.recentTopicWindow,
-      })[0];
+  const topic = await resolveTopic(topics, { date, topicId, topicText, config });
 
   return { date, config, level, topic, prompt: buildPrompt({ date, config, level, topic }) };
 }

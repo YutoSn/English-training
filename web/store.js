@@ -13,13 +13,13 @@ function readAll() {
   }
 }
 
-export function loadAnswers(date) {
-  return readAll()[date] ?? { listening: {}, dictation: {}, reading: {}, writing: '' };
+export function loadAnswers(setId) {
+  return readAll()[setId] ?? { listening: {}, dictation: {}, reading: {}, writing: '' };
 }
 
-export function saveAnswers(date, answers) {
+export function saveAnswers(setId, answers) {
   const all = readAll();
-  all[date] = answers;
+  all[setId] = answers;
   try {
     localStorage.setItem(KEY, JSON.stringify(all));
   } catch {
@@ -42,8 +42,8 @@ export function countWords(text) {
  * to read data/days/<date>.json for the correct answers, so this only needs to
  * carry what the learner produced.
  */
-export function buildSubmission(day, answers) {
-  const lines = [`# ${day.date} 解答 (${day.topic.label} / TOEIC ${day.level.toeic})`, ''];
+export function buildSubmission(day, answers, setId = day.date) {
+  const lines = [`# ${setId} 解答 (${day.topic.label} / TOEIC ${day.level.toeic})`, ''];
 
   if (day.listening) {
     lines.push('## リスニング');
@@ -81,9 +81,10 @@ export function buildSubmission(day, answers) {
   return lines.join('\n');
 }
 
-export function issueUrl(repo, day, submission) {
-  const title = `採点依頼 ${day.date} (${day.topic.label})`;
-  const body = `${submission}\n\n---\n<!-- date:${day.date} -->`;
+export function issueUrl(repo, day, submission, setId = day.date) {
+  const title = `採点依頼 ${setId} (${day.topic.label})`;
+  // この印で採点側が問題ファイルを特定する。消すと日付を取り違える。
+  const body = `${submission}\n\n---\n<!-- set:${setId} -->`;
   return `https://github.com/${repo}/issues/new?labels=grade&title=${encodeURIComponent(title)}&body=${encodeURIComponent(body)}`;
 }
 
@@ -127,5 +128,22 @@ export function saveSent(payload) {
 
 export function clearSent() {
   const { sent, ...rest } = readSettings();
+  writeSettings(rest);
+}
+
+/**
+ * 生成待ちの状態。Issue を出したあと GitHub アプリに移動して戻ってきても
+ * 待機を再開できるよう、既知のセット id ごと残しておく。
+ */
+export function loadPendingGeneration() {
+  return readSettings().generating ?? null;
+}
+
+export function savePendingGeneration(pending) {
+  writeSettings({ ...readSettings(), generating: pending });
+}
+
+export function clearPendingGeneration() {
+  const { generating, ...rest } = readSettings();
   writeSettings(rest);
 }

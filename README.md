@@ -3,8 +3,8 @@
 毎日1セットの英語問題(リスニング / ディクテーション / リーディング / 英作文)を
 Gemini が生成し、スマホでも PC でも開いて解ける静的サイト。採点・添削も Gemini が行う。
 
-- **問題**: 毎朝 6:00 (JST) に GitHub Actions が当日分を生成してコミットする
-- **テーマ**: `data/topics.json` に貯めた「興味のあるワード」からランダムに選ばれる
+- **問題**: アプリの「作成」タブでテーマを入れて押すと、その場で作られる (目安1〜2分)
+- **テーマ**: 入力したワードはネタ帳に貯まり、空のまま押せばそこからランダムに選ばれる
 - **レベル**: `data/config.json` の `level.toeic` を変えるだけで難易度が変わる
 - **音声**: ブラウザの音声合成 (Web Speech API) で読み上げる。音声ファイルは持たない
 
@@ -25,6 +25,22 @@ node --run models    # API キーが通っているか & 使えるモデルの�
 ```
 
 ## 使い方
+
+### 問題を作る
+
+「作成」タブでテーマを1つ入れて「作成する」を押すと GitHub の Issue が開く。
+そのまま送信すれば生成が始まり、**完成するとページが自動でその問題に切り替わる**
+(目安1〜2分)。テーマを空にすればネタ帳からランダムに選ばれる。
+
+送信後に GitHub アプリへ移動して戻ってきても、待機は再開される。
+同じ日に何度でも作れる (2本目以降のセット id は `YYYY-MM-DD-2`, `-3`)。
+
+手元から作るなら:
+
+```sh
+node --run new -- --topic-text=深海探査   # テーマ指定 (日本語可・新規可)
+node --run new                            # ネタ帳から自動で選ぶ
+```
 
 ### 解く
 
@@ -99,16 +115,10 @@ node --run models -- --check=gemini-3.1-pro-preview,gemini-3.7-flash
 
 手元にキーが無い場合は Actions の "List Gemini models" を手動実行しても同じ確認ができる。
 
-### 手動で問題を作る
+### API を使わずに問題を作る
 
-```sh
-node --run new                       # 今日 (JST) の分を生成
-node --run new -- --date=2026-09-01  # 日付指定
-node --run new -- --topic=climate-tech
-```
-
-API を使わずに作るときは `node --run prompt` でプロンプトだけ出し、
-できた JSON を `node --run new -- --from-file=content.json` に渡す。
+`node --run prompt` でプロンプトだけ出し、できた JSON を
+`node --run new -- --from-file=content.json` に渡す。
 Claude Code からは `/new-day` がこの流れをまとめてやる。
 
 ## 開発

@@ -12,6 +12,9 @@ import {
   loadSent,
   saveSent,
   clearSent,
+  loadPendingGeneration,
+  savePendingGeneration,
+  clearPendingGeneration,
 } from './store.js';
 import {
   TOEIC_MIN,
@@ -24,11 +27,13 @@ import {
   renderSettingsBody,
   settingsIssueUrl,
   topicKey,
+  generateIssueUrl,
 } from './settings.js';
 // バンド定義は生成プロンプトが使うものと同じ実体 (二重管理を避ける)。
 import { levelProfile } from './level.js';
+import { fetchFromGitHub, fetchSetFile, RateLimitError } from './github.js';
 
-const state = { config: null, index: null, topics: [], day: null, answers: null, tab: null };
+const state = { config: null, index: null, topics: [], setId: null, day: null, answers: null, tab: null };
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -57,7 +62,7 @@ function toast(message) {
 }
 
 function persist() {
-  saveAnswers(state.day.date, state.answers);
+  saveAnswers(state.setId, state.answers);
 }
 
 /* ---------- shared question rendering ---------- */
@@ -358,7 +363,7 @@ function writingPanel(day) {
 
 function reviewPanel(day) {
   const card = el('div', { class: 'card' });
-  const submission = () => buildSubmission(day, state.answers);
+  const submission = () => buildSubmission(day, state.answers, state.setId);
   const preview = el('textarea', { rows: '14', readonly: 'readonly' });
   preview.value = submission();
 
@@ -396,9 +401,14 @@ function reviewPanel(day) {
               class: 'btn',
               target: '_blank',
               rel: 'noopener',
-              href: issueUrl(state.config.repo, day, submission()),
+              href: issueUrl(state.config.repo, day, submission(), state.setId),
               onclick: (e) => {
-                e.currentTarget.href = issueUrl(state.config.repo, day, submission());
+                e.currentTarget.href = issueUrl(
+                  state.config.repo,
+                  day,
+                  submission(),
+                  state.setId,
+                );
               },
             },
             'GitHub Issue で提出',
@@ -662,6 +672,170 @@ function settingsPanel() {
   return frag;
 }
 
+/* ---------- 問題作成 ---------- */
+
+/**
+ * 生成は Actions 側で走るので、アプリは「Issue を出す → 新しいセットが
+ * 増えるまで待つ → 出来たら開く」という形で追いかける。待機状態は
+ * localStorage に置き、GitHub アプリへ移動して戻っても再開できるようにする。
+ */
+const generation = { running: false, message: '', error: '', listeners: new Set() };
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function notifyGeneration() {
+  for (const fn of generation.listeners) fn();
+}
+
+function setGenerationState({ message = '', error = '' }) {
+  generation.message = message;
+  generation.error = error;
+  notifyGeneration();
+}
+
+async function pollForNewSet() {
+  const pending = loadPendingGeneration();
+  if (!pending || generation.running || !state.config.repo) return;
+
+  generation.running = true;
+  // 生成は 1 分前後かかる。無認証の GitHub API は 1 時間 60 回までなので、
+  // 短い間隔で叩かず、最初だけ長めに待つ。
+  const INTERVAL = 8000;
+  const ATTEMPTS = 20;
+
+  try {
+    for (let i = 0; i < ATTEMPTS; i++) {
+      if (!loadPendingGeneration()) return; // 待機を取り消された
+      const waited = Math.round((Date.now() - pending.startedAt) / 1000);
+      setGenerationState({ message: `作成中… (${waited}秒経過 / 目安1〜2分)` });
+      await sleep(i === 0 ? 15000 : INTERVAL);
+      if (!loadPendingGeneration()) return;
+
+      let index;
+      try {
+        index = await fetchFromGitHub(state.config.repo, 'data/index.json');
+      } catch (err) {
+        if (err instanceof RateLimitError) {
+          clearPendingGeneration();
+          return setGenerationState({ error: err.message });
+        }
+        continue; // 一時的な失敗は次の周回で拾う
+      }
+
+      const fresh = index.days.find((d) => !pending.knownIds.includes(d.id));
+      if (!fresh) continue;
+
+      state.index = index;
+      clearPendingGeneration();
+      setGenerationState({ message: '' });
+      refreshSetPicker(fresh.id);
+      state.tab = null; // 出来たての問題を最初のタブで開く
+      await loadSet(fresh.id);
+      toast(`「${fresh.topic}」ができました`);
+      return;
+    }
+    clearPendingGeneration();
+    setGenerationState({
+      error:
+        '時間内に完成を確認できませんでした。Issue のコメントで失敗していないか確かめ、' +
+        '成功していればページを開き直してください。',
+    });
+  } finally {
+    generation.running = false;
+    notifyGeneration();
+  }
+}
+
+function generatePanel() {
+  const card = el('div', { class: 'card' });
+  const status = el('p', { class: 'explanation hidden' });
+
+  const listId = 'known-topics';
+  const input = el('input', {
+    type: 'text',
+    list: listId,
+    placeholder: '深海探査 (空ならおまかせ)',
+    'aria-label': 'テーマ',
+  });
+  const datalist = el(
+    'datalist',
+    { id: listId },
+    state.topics.map((t) => el('option', { value: t.label })),
+  );
+
+  const stop = el(
+    'button',
+    {
+      class: 'btn small hidden',
+      onclick: () => {
+        clearPendingGeneration();
+        setGenerationState({ message: '' });
+        toast('待機をやめました (作成自体は続きます)');
+      },
+    },
+    '待機をやめる',
+  );
+
+  const submit = el(
+    'a',
+    {
+      class: 'btn primary',
+      target: '_blank',
+      rel: 'noopener',
+      href: '#',
+      onclick: (e) => {
+        if (!state.config.repo) {
+          e.preventDefault();
+          return toast('data/config.json の repo が未設定です');
+        }
+        e.currentTarget.href = generateIssueUrl(state.config.repo, input.value);
+        savePendingGeneration({
+          topic: input.value.trim(),
+          startedAt: Date.now(),
+          knownIds: state.index.days.map((d) => d.id),
+        });
+        input.value = '';
+        setGenerationState({ message: '作成中… (0秒経過 / 目安1〜2分)' });
+        pollForNewSet();
+      },
+    },
+    '作成する',
+  );
+
+  function refresh() {
+    const pending = loadPendingGeneration();
+    const text = generation.error || generation.message;
+    status.textContent = text;
+    status.classList.toggle('hidden', !text);
+    status.classList.toggle('error', Boolean(generation.error));
+    stop.classList.toggle('hidden', !pending);
+    submit.classList.toggle('disabled', Boolean(pending));
+  }
+
+  generation.listeners.clear();
+  generation.listeners.add(refresh);
+
+  card.append(
+    el('h2', {}, '問題を作る'),
+    el(
+      'p',
+      { class: 'meta' },
+      'テーマを1つ入れて「作成する」を押すと GitHub の Issue が開きます。' +
+        'そのまま送信すれば作成が始まり、出来たこのページが自動で開きます (目安1〜2分)。',
+    ),
+    el('div', { class: 'controls topic-form' }, input, datalist, submit, stop),
+    status,
+    el(
+      'p',
+      { class: 'meta' },
+      '新しいテーマはそのままネタ帳にも追加されます。空のまま押すと、ネタ帳から自動で選びます。',
+    ),
+  );
+
+  refresh();
+  return card;
+}
+
 /* ---------- shell ---------- */
 
 const PANELS = [
@@ -674,6 +848,7 @@ const PANELS = [
 /** その日の問題に紐づかないタブ。常に最後に並ぶ。 */
 const EXTRA_PANELS = [
   ['review', '採点', reviewPanel],
+  ['generate', '作成', generatePanel],
   ['settings', '設定', settingsPanel],
 ];
 
@@ -720,20 +895,29 @@ function selectTab(key) {
   if (key === 'review') {
     // The preview is a snapshot; rebuild it whenever the tab is opened.
     const preview = document.querySelector('#panel-review textarea');
-    if (preview) preview.value = buildSubmission(state.day, state.answers);
+    if (preview) preview.value = buildSubmission(state.day, state.answers, state.setId);
   }
 }
 
-async function loadDay(date) {
-  const res = await fetch(`data/days/${date}.json`, { cache: 'no-cache' });
-  if (!res.ok) throw new Error(`${date} の問題を読み込めませんでした`);
-  state.day = await res.json();
-  state.answers = loadAnswers(date);
+async function loadSet(setId) {
+  state.day = await fetchSetFile(state.config.repo, setId);
+  state.setId = setId;
+  state.answers = loadAnswers(setId);
   $('#day-meta').textContent = `${state.day.topic.label} · TOEIC ${state.day.level.toeic} 相当`;
   const url = new URL(location.href);
-  url.searchParams.set('date', date);
+  url.searchParams.set('set', setId);
+  url.searchParams.delete('date');
   history.replaceState(null, '', url);
   render(state.day);
+}
+
+/** 選択肢を index の内容から作り直す (生成直後に新しいセットを足すため)。 */
+function refreshSetPicker(selected) {
+  const select = $('#day-select');
+  select.replaceChildren(
+    ...state.index.days.map((d) => el('option', { value: d.id }, `${d.date} · ${d.topic}`)),
+  );
+  select.value = selected;
 }
 
 async function boot() {
@@ -752,21 +936,21 @@ async function boot() {
 
     if (index.days.length === 0) throw new Error('問題がまだありません');
 
-    const select = $('#day-select');
-    select.replaceChildren(
-      ...index.days.map((d) => el('option', { value: d.date }, `${d.date} · ${d.topic}`)),
-    );
-    const requested = new URL(location.href).searchParams.get('date');
-    const initial = index.days.some((d) => d.date === requested) ? requested : index.days[0].date;
-    select.value = initial;
-    select.addEventListener('change', () => loadDay(select.value).catch(showError));
+    const params = new URL(location.href).searchParams;
+    const requested = params.get('set') ?? params.get('date');
+    const initial = index.days.some((d) => d.id === requested) ? requested : index.days[0].id;
+    refreshSetPicker(initial);
+    $('#day-select').addEventListener('change', (e) => loadSet(e.target.value).catch(showError));
 
-    await loadDay(initial);
+    await loadSet(initial);
 
     // Voice loading can take up to a second in some browsers; never make the
     // learner wait on it to see the questions.
     if (!isSupported()) toast('この端末では音声再生が使えません');
     else initSpeech(config.speech.lang);
+
+    // 生成待ちのまま離脱していたら追いかけを再開する。
+    if (loadPendingGeneration()) pollForNewSet();
   } catch (err) {
     showError(err);
   }

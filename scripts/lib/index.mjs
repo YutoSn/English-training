@@ -1,15 +1,16 @@
-import { readJson, writeJson, dayPath, listDays, INDEX_PATH } from './paths.mjs';
+import { readJson, writeJson, dayPath, listSets, setDate, INDEX_PATH } from './paths.mjs';
 
 /**
  * data/index.json is what the web app fetches first: it must stay small, so it
- * carries only what the day picker renders. Rebuilt from the day files, never
+ * carries only what the set picker renders. Rebuilt from the set files, never
  * edited by hand.
  */
 export function buildIndex() {
-  const days = listDays().map((date) => {
-    const day = readJson(dayPath(date));
+  const days = listSets().map((id) => {
+    const day = readJson(dayPath(id));
     return {
-      date,
+      id,
+      date: setDate(id),
       topic: day.topic?.label ?? '',
       toeic: day.level?.toeic ?? null,
       sections: ['listening', 'dictation', 'reading', 'writing'].filter((s) => day[s]),

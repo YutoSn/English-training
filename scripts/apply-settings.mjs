@@ -13,7 +13,8 @@ import fs from 'node:fs';
 import { readJson, writeJson, CONFIG_PATH, todayJst } from './lib/paths.mjs';
 import { loadTopics, saveTopics } from './lib/topics.mjs';
 import { extractPayload, applyPayload, labelsNeedingTranslation } from './lib/settings.mjs';
-import { generateWithRetry, GeminiError } from './lib/gemini.mjs';
+import { translateLabels } from './lib/translate.mjs';
+import { GeminiError } from './lib/gemini.mjs';
 
 const args = Object.fromEntries(
   process.argv.slice(2).map((a) => {
@@ -31,34 +32,6 @@ if (!payload) {
 }
 
 const config = readJson(CONFIG_PATH);
-
-/** ラベルだけ渡されたテーマを、生成プロンプトに埋められる英語フレーズにする。 */
-async function translateLabels(labels) {
-  if (labels.length === 0) return {};
-  const prompt = [
-    '次の日本語の語句を、英語学習教材のテーマ名として自然な英語の名詞句に訳してください。',
-    '出力は JSON オブジェクトのみ。キーを入力の日本語、値を英語にすること。',
-    '英語は小文字中心の一般的な表現にし、固有名詞以外は大文字にしない。',
-    '',
-    ...labels.map((l) => `- ${l}`),
-  ].join('\n');
-
-  const text = await generateWithRetry(
-    {
-      prompt,
-      model: config.generator.gradeModel ?? config.generator.model,
-      temperature: 0.2,
-      maxOutputTokens: 2048,
-      schema: {
-        type: 'OBJECT',
-        properties: Object.fromEntries(labels.map((l) => [l, { type: 'STRING' }])),
-        required: labels,
-      },
-    },
-    { attempts: 3 },
-  );
-  return JSON.parse(text);
-}
 
 try {
   const topics = loadTopics();

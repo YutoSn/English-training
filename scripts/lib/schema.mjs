@@ -26,11 +26,14 @@ function checkChoiceQuestion(q, where, errors) {
   if (!isNonEmptyString(q?.explanation)) errors.push(`${where}.explanation は必須の文字列`);
 }
 
-export function validateDay(day, { date } = {}) {
+export function validateDay(day, { setId } = {}) {
   const errors = [];
 
   if (!/^\d{4}-\d{2}-\d{2}$/.test(day?.date ?? '')) errors.push('date は YYYY-MM-DD 形式');
-  if (date && day?.date !== date) errors.push(`date "${day?.date}" がファイル名 "${date}" と不一致`);
+  // ファイル名は setId (YYYY-MM-DD か YYYY-MM-DD-2)。day.date はその日付部分。
+  if (setId && day?.date !== String(setId).slice(0, 10)) {
+    errors.push(`date "${day?.date}" がファイル名 "${setId}" と不一致`);
+  }
   if (!isNonEmptyString(day?.topic?.label)) errors.push('topic.label は必須');
   if (!isNonEmptyString(day?.topic?.id)) errors.push('topic.id は必須');
   if (!Number.isInteger(day?.level?.toeic)) errors.push('level.toeic は整数');
