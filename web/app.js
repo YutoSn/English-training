@@ -911,11 +911,20 @@ async function loadSet(setId) {
   render(state.day);
 }
 
-/** 選択肢を index の内容から作り直す (生成直後に新しいセットを足すため)。 */
+/**
+ * 選択肢を index の内容から作り直す (生成直後に新しいセットを足すため)。
+ * 同じ日に複数セットがあると日付とテーマだけでは区別できないので、
+ * id の連番 (`YYYY-MM-DD-2` の 2) を添える。
+ */
+function setLabel({ id, date, topic }) {
+  const seq = String(id).slice(11);
+  return `${date} · ${topic}${seq ? ` #${seq}` : ''}`;
+}
+
 function refreshSetPicker(selected) {
   const select = $('#day-select');
   select.replaceChildren(
-    ...state.index.days.map((d) => el('option', { value: d.id }, `${d.date} · ${d.topic}`)),
+    ...state.index.days.map((d) => el('option', { value: d.id }, setLabel(d))),
   );
   select.value = selected;
 }
