@@ -1,0 +1,128 @@
+{
+  "date": "2026-08-25",
+  "topic": {
+    "id": "cats",
+    "label": "猫",
+    "en": "cats"
+  },
+  "level": {
+    "toeic": 820,
+    "cefr": "C1"
+  },
+  "listening": {
+    "title": "The Hidden Power of a Cat's Purr",
+    "script": "Have you ever wondered why a cat's purr sounds so soothing? Recent feline research indicates that this low-frequency rumbling, typically oscillating between twenty-five and one hundred and fifty hertz, does much more than signify contentment. Were it merely a sign of happiness, cats wouldn't purr when injured or severely stressed. Evolutionary biologists hypothesize that purring serves as an internal healing mechanism. Not only does it promote tissue regeneration, but it also accelerates bone density recovery. Interestingly, humans exposed to these specific frequencies often experience lowered blood pressure and a reduction in stress hormones. Therefore, incorporating a feline companion into a therapeutic setting, a practice now gaining traction in modern psychotherapy, can profoundly benefit individuals grappling with chronic anxiety. Next time your cat curls up on your lap and starts vibrating, remember that you are effectively receiving a dose of natural, acoustic therapy.",
+    "questions": [
+      {
+        "id": "l1",
+        "prompt": "What is the primary misconception about why cats purr, according to the speaker?",
+        "choices": [
+          "It functions solely as a biological mechanism to mend broken bones.",
+          "It is exclusively an expression of joy and satisfaction.",
+          "It is a low-frequency sound that causes distress in injured felines.",
+          "It accelerates tissue regeneration during periods of severe stress."
+        ],
+        "answer": 1,
+        "explanation": "話者は「もし単なる幸福のサインであるならば、怪我をした時や強いストレスを感じた時にはゴロゴロ言わないはずだ（Were it merely a sign of happiness, cats wouldn't purr when injured or severely stressed.）」と述べており、ゴロゴロ音が満足感(contentment/happiness)だけを示すという考えが誤解であることを指摘しています。「joy and satisfaction」は「contentment/happiness」の適切な言い換えです。"
+      },
+      {
+        "id": "l2",
+        "prompt": "How does feline purring potentially assist human health?",
+        "choices": [
+          "By physically vibrating the human body to heal severe injuries.",
+          "By increasing the production of stress hormones in the brain.",
+          "By encouraging individuals to engage in modern psychotherapy.",
+          "By emitting specific acoustic waves that help decrease blood pressure."
+        ],
+        "answer": 3,
+        "explanation": "ゴロゴロ音が人間に与える影響について、「特定の周波数にさらされた人間はしばしば血圧の低下やストレスホルモンの減少を経験する（humans exposed to these specific frequencies often experience lowered blood pressure and a reduction in stress hormones）」と述べられています。「emitting specific acoustic waves that help decrease blood pressure」はこれの言い換えです。"
+      }
+    ]
+  },
+  "dictation": {
+    "sentences": [
+      {
+        "id": "d1",
+        "text": "Had I known about the cat's nocturnal habits, I would have kept my bedroom door tightly shut.",
+        "hint": "「Had I」の連結（ハダイ）、「kept my」の t の脱落、および仮定法過去完了の倒置。"
+      },
+      {
+        "id": "d2",
+        "text": "Feline agility is largely attributed to their flexible spines and the lack of a true collarbone.",
+        "hint": "「attributed to」の連結と t の弱形、「lack of a」の連続する連結（ラッコヴァ）。"
+      }
+    ]
+  },
+  "reading": {
+    "passage": "The domestication of the domestic cat, Felis catus, is a subject of enduring fascination among evolutionary biologists and historians alike. Unlike dogs, which were selectively bred for specific tasks such as guarding or herding, cats essentially domesticated themselves. Around ten thousand years ago in the Fertile Crescent, the advent of agriculture led to surplus grain stores, which inevitably attracted rodents. Recognizing a highly lucrative hunting ground, wildcats encroached upon human settlements. Humans, in turn, tolerated and eventually welcomed these solitary predators, forming a mutually beneficial symbiotic relationship.\n\nHowever, this loose form of domestication means that modern cats retain a substantial array of their wild ancestors' instincts. Seldom do we see a companion animal so precariously balanced between tame affection and fierce independence. While they exhibit profound attachment to their human caretakers, they remain apex predators within their micro-ecosystems. This dual nature has sparked considerable debate regarding their ecological impact.\n\nFree-roaming domestic felines are responsible for the annual decimation of billions of birds and small mammals globally. Consequently, conservationists adamantly advocate for keeping cats indoors to mitigate this unprecedented biodiversity loss. Yet, proponents of outdoor access argue that confining such instinct-driven creatures compromises their psychological well-being. Ultimately, navigating the feline enigma requires a nuanced understanding of their evolutionary trajectory, acknowledging that the creature purring on the sofa is merely a whisker away from the untamed wild.",
+    "glossary": [
+      {
+        "word": "domestication",
+        "meaning": "家畜化"
+      },
+      {
+        "word": "selectively bred",
+        "meaning": "選択交配された"
+      },
+      {
+        "word": "symbiotic relationship",
+        "meaning": "共生関係"
+      },
+      {
+        "word": "precariously",
+        "meaning": "不安定に、危うく"
+      },
+      {
+        "word": "apex predator",
+        "meaning": "頂点捕食者"
+      },
+      {
+        "word": "decimation",
+        "meaning": "大量殺戮、激減"
+      },
+      {
+        "word": "biodiversity",
+        "meaning": "生物多様性"
+      }
+    ],
+    "questions": [
+      {
+        "id": "r1",
+        "prompt": "According to the passage, how did the domestication process of cats differ from that of dogs?",
+        "choices": [
+          "Cats initiated the relationship with humans by seeking out prey near agricultural settlements.",
+          "Cats were selectively bred by early farmers to protect surplus grain from rodents.",
+          "Dogs formed a mutually beneficial symbiotic relationship with wildcats in the Fertile Crescent.",
+          "Dogs were primarily domesticated for companionship rather than for specific agricultural tasks."
+        ],
+        "answer": 0,
+        "explanation": "猫の家畜化について本文では「猫は本質的に自らを家畜化した（cats essentially domesticated themselves）」とし、農耕の始まりによる穀物貯蔵がネズミを引き寄せ、それを狙ってヤマネコが人間の居住地に近づいた（wildcats encroached upon human settlements）と説明しています。「initiated the relationship with humans by seeking out prey」はこれの適切な言い換えです。選択肢2は「selectively bred」という本文の語彙を使った罠です。"
+      },
+      {
+        "id": "r2",
+        "prompt": "What is the main reason conservationists suggest restricting cats to indoor environments?",
+        "choices": [
+          "To ensure the psychological well-being of the felines by preventing outdoor stress.",
+          "To protect the cats from larger apex predators that roam the local micro-ecosystems.",
+          "To curb the extensive predation of native avian and small mammal populations.",
+          "To completely eliminate the wild instincts that modern felines have retained over millennia."
+        ],
+        "answer": 2,
+        "explanation": "環境保護論者が猫を屋内で飼うことを主張する理由として、放し飼いの猫が「毎年何十億もの鳥や小型哺乳類を大量に殺している（responsible for the annual decimation of billions of birds and small mammals globally）」ため、「この前例のない生物多様性の喪失を軽減する（mitigate this unprecedented biodiversity loss）」ことを挙げています。「curb the extensive predation of native avian and small mammal populations」が正解です。"
+      }
+    ]
+  },
+  "writing": {
+    "prompt": "Some people argue that domestic cats should be kept strictly indoors to protect local wildlife, while others believe that outdoor access is essential for a cat's psychological well-being. Which view do you support and why?",
+    "words": [
+      60,
+      100
+    ],
+    "keyPoints": [
+      "自分の立場（室内飼い推奨、または屋外アクセス容認）を明確にしているか。",
+      "その立場を支持する理由（生態系保護、または動物福祉）が論理的に展開されているか。",
+      "比較や譲歩の表現を用いて、説得力を持たせているか。"
+    ],
+    "modelAnswer": "I strongly believe that domestic cats should be kept strictly indoors. While I understand the argument that outdoor access allows cats to express their natural hunting instincts, the ecological damage they cause is too significant to ignore. Free-roaming cats are responsible for a massive decline in local bird and small mammal populations. Furthermore, indoor cats can live highly fulfilling lives if provided with sufficient mental and physical stimulation, such as interactive toys and climbing structures. Therefore, prioritizing biodiversity through indoor confinement is the most responsible approach to pet ownership."
+  }
+}
