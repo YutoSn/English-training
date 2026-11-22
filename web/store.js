@@ -147,3 +147,48 @@ export function clearPendingGeneration() {
   const { generating, ...rest } = readSettings();
   writeSettings(rest);
 }
+
+/**
+ * 動画タブ。GAS の URL と合言葉は端末ごとの秘密なのでリポジトリには置かず、
+ * ここにだけ保存する。生成済みの教材と解答も同じ理由でこの端末に残る。
+ */
+const VIDEO_KEY = 'english-training:video';
+const VIDEO_LIMIT = 30;
+
+function readVideo() {
+  try {
+    return JSON.parse(localStorage.getItem(VIDEO_KEY) ?? '{}');
+  } catch {
+    return {};
+  }
+}
+
+function writeVideo(value) {
+  try {
+    localStorage.setItem(VIDEO_KEY, JSON.stringify(value));
+  } catch {
+    /* private mode / quota */
+  }
+}
+
+export function loadVideoConnection() {
+  return readVideo().connection ?? { gasUrl: '', token: '' };
+}
+
+export function saveVideoConnection(connection) {
+  writeVideo({ ...readVideo(), connection });
+}
+
+export function loadVideoLibrary() {
+  return readVideo().library ?? [];
+}
+
+/** 新しいものを先頭に足す。同じ id は置き換え、古いものから捨てる。 */
+export function saveVideoEntry(entry) {
+  const library = loadVideoLibrary().filter((e) => e.id !== entry.id);
+  writeVideo({ ...readVideo(), library: [entry, ...library].slice(0, VIDEO_LIMIT) });
+}
+
+export function removeVideoEntry(id) {
+  writeVideo({ ...readVideo(), library: loadVideoLibrary().filter((e) => e.id !== id) });
+}

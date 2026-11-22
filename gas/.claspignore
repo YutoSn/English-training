@@ -1,0 +1,4 @@
+# GAS に送るのはこの2つだけ (README などは送らない)
+**/**
+!Code.gs
+!appsscript.json

@@ -105,9 +105,9 @@ scripts/lib/plan.mjs ──プロンプト+responseSchema──▶ Gemini API
 
 ### web/ の分割理由
 
-`web/diff.js` `web/store.js` `web/settings.js` は DOM も browser API も触らない。
+`web/diff.js` `web/store.js` `web/settings.js` `web/video.js` は DOM も browser API も触らない。
 `test/` から Node でそのまま import してテストするため。DOM 操作は `web/app.js`、
-音声は `web/speech.js` に閉じる。この境界を越えると該当ロジックがテスト不能になる。
+音声は `web/speech.js`、YouTube プレーヤーは `web/youtube.js` に閉じる。この境界を越えると該当ロジックがテスト不能になる。
 
 **両側で使う純粋モジュールの実体は `web/` 側に `.js` で置き、`scripts/lib/` から
 再 export する**。二重管理を避けつつ、配信環境の MIME 型に依存しないため:
@@ -168,6 +168,36 @@ config と topics に書き戻す。`applyPayload` は純粋関数で、書き�
 埋め込んでおり、`resolveSetId()` はこれで問題ファイルを特定する (`date:` は旧形式で、
 既存の Issue のために読めるようにしてある)。この印を消すと採点が別のセットを見る。採点プロンプトには問題 JSON 全文を埋め込むので
 (`buildGradePrompt`)、モデルにファイル読み取り能力は要らない。
+
+### 動画タブ (YouTube + GAS)
+
+Actions を通らない唯一の生成経路。その場で結果が欲しいので、Gemini を呼ぶ中継役に
+Google Apps Script のウェブアプリ (`gas/Code.gs`) を使う。キーは GAS の
+スクリプト プロパティにあり、ブラウザにもリポジトリにも出ない。
+
+```
+web/app.js videoPanel ──POST (text/plain)──▶ GAS doPost ──▶ Gemini (fileData=YouTube URL + videoMetadata)
+        ▲                                                              │
+        └── validateVideoSet に落ちたらエラーを添えて再要求 ◀── JSON ──┘
+                  │
+            localStorage (教材・解答・GAS の URL と合言葉)
+```
+
+- **GAS は「合言葉の照合 + 中継」だけ**。プロンプト・`videoSchema`・検証は
+  `web/video.js` にある。GAS の再デプロイは手作業なので、教材の形を変えても
+  GAS を触らずに済むようにしている。`checkRequest_` で受け付ける形を
+  「YouTube 1本 + 区間 + プロンプト」に絞ってあり、汎用プロキシにはしない。
+- **fetch に Content-Type を付けない**。GAS は CORS のプリフライトに答えられないので、
+  text/plain の単純リクエストでしか呼べない。
+- `gas/Code.gs` は `test/gas.test.mjs` が `node:vm` で Apps Script のサービスを
+  スタブして動かす。デプロイ手順は `gas/README.md`。
+- transcript の秒数は**動画の先頭から**。区間の先頭から数えるモデルの癖があるので、
+  `validateVideoSet` はそれを見分けられる文言で弾く。
+- 動画の教材は `data/` に残さない (端末の localStorage だけ)。`data/config.json` の
+  `video` は生成の設定 (モデル・穴の数・設問数・区間の上限) だけを持つ。
+  `maxSeconds` は GAS 側の上限 600 を超えないこと。
+- 再生は `web/youtube.js` (IFrame Player API) に閉じる。区間の終わりを知らせる
+  イベントが無いので、再生中だけ 150ms 間隔で時刻を見張ってループさせている。
 
 ## 教材を書くときの基準
 
