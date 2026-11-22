@@ -127,6 +127,8 @@ export function buildVideoPrompt({ start, end, level, blanks, questions, feedbac
     `- start / end は**動画の先頭からの秒数** (区間の先頭からではない)。${start}〜${end} の範囲に収め、時系列順に並べる。`,
     '- 話者が複数いて区別できるときは speaker に名前か "A" "B" を入れる。分からなければ空文字。',
     '- BGM だけ・無音の部分は含めない。',
+    '- ja はその行の自然な日本語訳。直訳ではなく、話の流れが分かる訳にする。',
+    '  前後の行に意味がまたがるときも、その行に対応する部分だけを訳す。',
     '',
     '## blanks (字幕の穴埋め)',
     `- ${blanks}個。transcript の語から、学習者のレベルで聞き取りにくい・覚える価値がある語を選ぶ。`,
@@ -174,9 +176,10 @@ export const videoSchema = {
           end: { type: 'NUMBER', description: '動画先頭からの秒数' },
           speaker: str('話者名。不明なら空文字'),
           text: str('聞こえたとおりの英文'),
+          ja: str('その行の自然な日本語訳'),
         },
-        required: ['start', 'end', 'speaker', 'text'],
-        propertyOrdering: ['start', 'end', 'speaker', 'text'],
+        required: ['start', 'end', 'speaker', 'text', 'ja'],
+        propertyOrdering: ['start', 'end', 'speaker', 'text', 'ja'],
       },
     },
     blanks: {
@@ -238,6 +241,7 @@ export function validateVideoSet(set, { start, end, blanks, questions }) {
   const slack = 3;
   lines.forEach((l, i) => {
     if (typeof l?.text !== 'string' || !l.text.trim()) errors.push(`transcript[${i}].text が空です`);
+    if (typeof l?.ja !== 'string' || !l.ja.trim()) errors.push(`transcript[${i}].ja (日本語訳) が空です`);
     if (!Number.isFinite(l?.start) || !Number.isFinite(l?.end) || l.end < l.start) {
       errors.push(`transcript[${i}] の start/end が不正です`);
     } else if (l.start < start - slack || l.end > end + slack) {

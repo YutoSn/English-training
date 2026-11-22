@@ -196,6 +196,10 @@ web/app.js videoPanel ──POST (text/plain)──▶ GAS doPost ──▶ Gemi
 - 動画の教材は `data/` に残さない (端末の localStorage だけ)。`data/config.json` の
   `video` は生成の設定 (モデル・穴の数・設問数・区間の上限) だけを持つ。
   `maxSeconds` は GAS 側の上限 600 を超えないこと。
+- **動画タブがメイン**。`MAIN_PANELS` で先頭に置き、起動時はここを開く。日次セットを
+  新しく作ったときだけ、`OPEN_DAY` でそのセットの最初のタブを開く。
+- transcript の各行に日本語訳 `ja` を持たせ、既定では隠して「日本語訳を表示」で出す
+  (先に見えると聞き取りの練習にならない)。`ja` が無い古い保存済み教材ではボタンを出さない。
 - 再生は `web/youtube.js` (IFrame Player API) に閉じる。区間の終わりを知らせる
   イベントが無いので、再生中だけ 150ms 間隔で時刻を見張ってループさせている。
 

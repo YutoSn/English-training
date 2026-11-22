@@ -764,7 +764,7 @@ async function pollForNewSet() {
       clearPendingGeneration();
       setGenerationState({ message: '' });
       refreshSetPicker(fresh.id);
-      state.tab = null; // 出来たての問題を最初のタブで開く
+      state.tab = OPEN_DAY; // 出来たての問題を、その日のセットの最初のタブで開く
       await loadSet(fresh.id);
       toast(`「${fresh.topic}」ができました`);
       return;
@@ -1207,6 +1207,7 @@ function videoViewer(entry) {
           {},
           line.speaker ? el('span', { class: 'meta' }, `${line.speaker}: `) : null,
           text,
+          line.ja ? el('div', { class: 'line-ja' }, line.ja) : null,
         ),
       ),
     );
@@ -1233,6 +1234,26 @@ function videoViewer(entry) {
     { class: 'card' },
     el('h2', {}, '字幕の穴埋め ', score),
     el('p', { class: 'meta' }, '各行の ▶ でその行だけ再生できます。大文字小文字と句読点は問いません。'),
+    // 日本語訳を作る前に保存した教材には ja が無いので、そのときはボタンごと出さない。
+    set.transcript.some((l) => l.ja)
+      ? el(
+          'div',
+          { class: 'controls' },
+          el(
+            'button',
+            {
+              class: 'btn small',
+              'aria-pressed': 'false',
+              onclick: (e) => {
+                const on = transcriptList.classList.toggle('show-ja');
+                e.currentTarget.setAttribute('aria-pressed', String(on));
+                e.currentTarget.textContent = on ? '日本語訳を隠す' : '日本語訳を表示';
+              },
+            },
+            '日本語訳を表示',
+          ),
+        )
+      : null,
     transcriptList,
     el(
       'div',
@@ -1278,13 +1299,18 @@ const PANELS = [
   ['writing', '英作文', writingPanel],
 ];
 
+/** 動画タブがメイン。先頭に置き、起動時はここを開く。 */
+const MAIN_PANELS = [['video', '動画', videoPanel]];
+
 /** その日の問題に紐づかないタブ。常に最後に並ぶ。 */
 const EXTRA_PANELS = [
   ['review', '採点', reviewPanel],
-  ['video', '動画', videoPanel],
   ['generate', '作成', generatePanel],
   ['settings', '設定', settingsPanel],
 ];
+
+/** state.tab に入れると「その日のセットの最初のタブ」を開く。 */
+const OPEN_DAY = Symbol('open-day');
 
 function render(day) {
   stop();
@@ -1294,7 +1320,9 @@ function render(day) {
   tabs.replaceChildren();
   panels.replaceChildren();
 
-  const entries = [...PANELS.filter(([key]) => day[key]), ...EXTRA_PANELS];
+  const dayEntries = PANELS.filter(([key]) => day[key]);
+  const entries = [...MAIN_PANELS, ...dayEntries, ...EXTRA_PANELS];
+  if (state.tab === OPEN_DAY) state.tab = dayEntries[0]?.[0] ?? null;
 
   for (const [key, label, build] of entries) {
     const panel = el('section', { class: 'panel', id: `panel-${key}` });
