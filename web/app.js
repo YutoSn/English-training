@@ -15,6 +15,11 @@ import {
   loadPendingGeneration,
   savePendingGeneration,
   clearPendingGeneration,
+  loadVideoConnection,
+  saveVideoConnection,
+  loadVideoLibrary,
+  saveVideoEntry,
+  removeVideoEntry,
 } from './store.js';
 import {
   TOEIC_MIN,
@@ -32,6 +37,23 @@ import {
 // バンド定義は生成プロンプトが使うものと同じ実体 (二重管理を避ける)。
 import { levelProfile } from './level.js';
 import { fetchFromGitHub, fetchSetFile, RateLimitError } from './github.js';
+import {
+  buildGasRequest,
+  buildVideoPrompt,
+  checkBlank,
+  checkRange,
+  clozeTokens,
+  formatTime,
+  GasError,
+  parseGasResponse,
+  parseTime,
+  parseYouTubeUrl,
+  scoreBlanks,
+  validateVideoSet,
+  videoConfig,
+  videoLabel,
+} from './video.js';
+import { createPlayer } from './youtube.js';
 
 const state = { config: null, index: null, topics: [], setId: null, day: null, answers: null, tab: null };
 
@@ -67,7 +89,11 @@ function persist() {
 
 /* ---------- shared question rendering ---------- */
 
-function renderChoiceQuestions(section, questions) {
+/**
+ * `bind` で解答の置き場所を差し替えられる。既定はその日のセットの解答
+ * (動画タブは自分の保存先を渡す)。
+ */
+function renderChoiceQuestions(section, questions, bind = dayAnswerBinding(section)) {
   const list = el('ol', { class: 'questions' });
 
   for (const q of questions) {
@@ -81,12 +107,10 @@ function renderChoiceQuestions(section, questions) {
         name: `${section}-${q.id}`,
         value: String(i),
       });
-      input.checked = state.answers[section][q.id] === i;
+      input.checked = bind.get(q.id) === i;
       input.addEventListener('change', () => {
-        state.answers[section][q.id] = i;
-        persist();
+        bind.set(q.id, i);
         mark();
-        updateScore();
       });
       return el('label', { class: 'choice' }, input, el('span', {}, choice));
     });
@@ -94,7 +118,7 @@ function renderChoiceQuestions(section, questions) {
     // Feedback is immediate: choice questions have an objective answer, so
     // there is nothing to gain by making the learner wait for grading.
     function mark() {
-      const picked = state.answers[section][q.id];
+      const picked = bind.get(q.id);
       labels.forEach((label, i) => {
         label.classList.toggle('correct', picked !== undefined && i === q.answer);
         label.classList.toggle('wrong', picked === i && i !== q.answer);
@@ -108,6 +132,17 @@ function renderChoiceQuestions(section, questions) {
   }
 
   return list;
+}
+
+function dayAnswerBinding(section) {
+  return {
+    get: (id) => state.answers[section][id],
+    set: (id, value) => {
+      state.answers[section][id] = value;
+      persist();
+      updateScore();
+    },
+  };
 }
 
 function updateScore() {
@@ -836,6 +871,404 @@ function generatePanel() {
   return card;
 }
 
+/* ---------- 動画 (YouTube) ---------- */
+
+/**
+ * 生成は GAS ウェブアプリ (gas/Code.gs) 経由で Gemini を呼ぶ。Actions を通さないので
+ * その場で結果が返る。プロンプトと検証は web/video.js が持ち、検証に落ちたら
+ * エラーを添えて作り直す (generate-day.mjs と同じ考え方)。
+ */
+const video = { player: null, entryId: null, busy: false };
+
+function destroyVideoPlayer() {
+  video.player?.destroy();
+  video.player = null;
+}
+
+async function requestVideoSet({ videoId, start, end }, onProgress) {
+  const { gasUrl, token } = loadVideoConnection();
+  if (!gasUrl || !token) throw new Error('先に「接続設定」で GAS の URL と合言葉を保存してください');
+
+  const cfg = videoConfig(state.config);
+  const level = levelProfile(state.config.level.toeic);
+  let feedback = [];
+
+  for (let attempt = 1; attempt <= cfg.attempts; attempt++) {
+    onProgress(attempt);
+    const prompt = buildVideoPrompt({ start, end, level, ...cfg, feedback });
+    const req = buildGasRequest({ token, videoId, start, end, prompt, model: cfg.model });
+    // Content-Type を付けずに文字列で送る = text/plain の単純リクエスト。
+    // GAS はプリフライト (OPTIONS) に答えられないので、これ以外の形だと CORS で落ちる。
+    const res = await fetch(gasUrl, { method: 'POST', body: JSON.stringify(req) });
+    if (!res.ok) throw new Error(`GAS に接続できませんでした (${res.status})`);
+
+    let body;
+    try {
+      body = await res.json();
+    } catch {
+      throw new Error(
+        'GAS の応答が JSON ではありません。デプロイの「アクセスできるユーザー」が「全員」か確認してください',
+      );
+    }
+
+    let set;
+    try {
+      set = parseGasResponse(body);
+    } catch (err) {
+      if (err instanceof GasError && err.retriable && attempt < cfg.attempts) continue;
+      throw err;
+    }
+
+    const errors = validateVideoSet(set, { start, end, ...cfg });
+    if (errors.length === 0) return set;
+    feedback = errors.slice(0, 15);
+  }
+  throw new Error(`教材が条件を満たしませんでした: ${feedback.slice(0, 3).join(' / ')}`);
+}
+
+function videoPanel() {
+  const frag = document.createDocumentFragment();
+  const viewer = el('div', {});
+
+  /* ---- 作成フォーム ---- */
+  const urlInput = el('input', {
+    type: 'url',
+    placeholder: 'https://www.youtube.com/watch?v=...',
+    'aria-label': 'YouTube の URL',
+  });
+  const timeInput = (placeholder, label) =>
+    el('input', { type: 'text', placeholder, 'aria-label': label, inputmode: 'numeric' });
+  const startInput = timeInput('開始 1:20', '開始時刻');
+  const endInput = timeInput('終了 2:05', '終了時刻');
+  const status = el('p', { class: 'explanation hidden' });
+
+  // 共有リンクに t= が付いていれば開始に入れておく。
+  urlInput.addEventListener('change', () => {
+    const parsed = parseYouTubeUrl(urlInput.value);
+    if (parsed?.start != null && !startInput.value) startInput.value = formatTime(parsed.start);
+  });
+
+  function setStatus(text, isError = false) {
+    status.textContent = text;
+    status.classList.toggle('hidden', !text);
+    status.classList.toggle('error', isError);
+  }
+
+  const submit = el(
+    'button',
+    {
+      class: 'btn primary',
+      onclick: async () => {
+        if (video.busy) return;
+        const parsed = parseYouTubeUrl(urlInput.value);
+        if (!parsed) return setStatus('YouTube の動画 URL を入れてください', true);
+        const start = parseTime(startInput.value);
+        const end = parseTime(endInput.value);
+        const rangeError = checkRange(start, end, videoConfig(state.config).maxSeconds);
+        if (rangeError) return setStatus(rangeError, true);
+
+        video.busy = true;
+        submit.classList.add('disabled');
+        const began = Date.now();
+        const tick = setInterval(() => {
+          setStatus(`作成中… (${Math.round((Date.now() - began) / 1000)}秒経過 / 目安30秒〜2分)`);
+        }, 1000);
+        try {
+          const set = await requestVideoSet({ videoId: parsed.id, start, end }, (attempt) => {
+            if (attempt > 1) toast(`条件を満たさなかったので作り直しています (${attempt}回目)`);
+          });
+          const entry = {
+            id: `${parsed.id}@${start}-${end}`,
+            videoId: parsed.id,
+            start,
+            end,
+            createdAt: Date.now(),
+            set,
+            answers: { blanks: {}, quiz: {} },
+          };
+          saveVideoEntry(entry);
+          setStatus('');
+          refreshLibrary(entry.id);
+          openEntry(entry.id);
+          toast('教材ができました');
+        } catch (err) {
+          setStatus(err.message ?? String(err), true);
+        } finally {
+          clearInterval(tick);
+          video.busy = false;
+          submit.classList.remove('disabled');
+        }
+      },
+    },
+    '作成する',
+  );
+
+  /* ---- 接続設定 ---- */
+  const conn = loadVideoConnection();
+  const gasInput = el('input', {
+    type: 'url',
+    placeholder: 'https://script.google.com/macros/s/.../exec',
+    'aria-label': 'GAS ウェブアプリの URL',
+  });
+  gasInput.value = conn.gasUrl;
+  const tokenInput = el('input', {
+    type: 'password',
+    placeholder: '合言葉',
+    'aria-label': '合言葉',
+    autocomplete: 'off',
+  });
+  tokenInput.value = conn.token;
+  const connection = el(
+    'details',
+    conn.gasUrl && conn.token ? {} : { open: 'open' },
+    el('summary', { class: 'meta' }, '接続設定 (GAS の URL と合言葉)'),
+    el(
+      'p',
+      { class: 'meta' },
+      'この端末にだけ保存されます。作り方はリポジトリの gas/README.md を参照してください。',
+    ),
+    el(
+      'div',
+      { class: 'controls topic-form' },
+      gasInput,
+      tokenInput,
+      el(
+        'button',
+        {
+          class: 'btn',
+          onclick: () => {
+            saveVideoConnection({ gasUrl: gasInput.value.trim(), token: tokenInput.value });
+            toast('保存しました');
+          },
+        },
+        '保存',
+      ),
+    ),
+  );
+
+  /* ---- 保存済み ---- */
+  const librarySelect = el('select', { 'aria-label': '保存した教材' });
+  const removeBtn = el(
+    'button',
+    {
+      class: 'btn small',
+      onclick: () => {
+        if (!video.entryId) return;
+        removeVideoEntry(video.entryId);
+        destroyVideoPlayer();
+        video.entryId = null;
+        viewer.replaceChildren();
+        refreshLibrary();
+        toast('削除しました');
+      },
+    },
+    '削除',
+  );
+  const library = el('div', { class: 'controls' }, librarySelect, removeBtn);
+  librarySelect.addEventListener('change', () => openEntry(librarySelect.value));
+
+  function refreshLibrary(selected = video.entryId) {
+    const entries = loadVideoLibrary();
+    librarySelect.replaceChildren(
+      el('option', { value: '' }, entries.length ? '保存した教材を開く' : '保存した教材はありません'),
+      ...entries.map((e) => el('option', { value: e.id }, videoLabel(e))),
+    );
+    librarySelect.value = selected ?? '';
+    removeBtn.classList.toggle('hidden', !selected);
+  }
+
+  function openEntry(id) {
+    const entry = loadVideoLibrary().find((e) => e.id === id);
+    destroyVideoPlayer();
+    video.entryId = entry?.id ?? null;
+    removeBtn.classList.toggle('hidden', !entry);
+    viewer.replaceChildren(...(entry ? videoViewer(entry) : []));
+  }
+
+  frag.append(
+    el(
+      'div',
+      { class: 'card' },
+      el('h2', {}, '動画から教材を作る'),
+      el(
+        'p',
+        { class: 'meta' },
+        'YouTube の公開動画の URL と区間 (5分以内) を入れると、字幕の穴埋めと内容クイズを作ります。',
+      ),
+      el('div', { class: 'controls topic-form' }, urlInput),
+      el('div', { class: 'controls topic-form' }, startInput, endInput, submit),
+      status,
+      connection,
+      library,
+    ),
+    viewer,
+  );
+
+  refreshLibrary();
+  // タブを作り直したとき (別のセットを開いたとき) も開いていた教材を戻す。
+  if (video.entryId) openEntry(video.entryId);
+  return frag;
+}
+
+function videoViewer(entry) {
+  const { set } = entry;
+  const persistEntry = () => saveVideoEntry(entry);
+
+  /* ---- プレーヤー ---- */
+  const host = el('div', {});
+  const frame = el('div', { class: 'video-frame' }, host);
+  const rate = el(
+    'select',
+    { 'aria-label': '再生速度' },
+    [0.5, 0.75, 1, 1.25].map((r) => el('option', { value: String(r) }, `${r}x`)),
+  );
+  rate.value = '1';
+  rate.addEventListener('change', () => video.player?.setRate(Number(rate.value)));
+
+  const ready = createPlayer(host, entry)
+    .then((player) => {
+      // 待っている間に別の教材を開いていたら捨てる。
+      if (video.entryId !== entry.id) return player.destroy();
+      video.player = player;
+    })
+    .catch((err) => toast(err.message));
+  const withPlayer = (fn) => () => ready.then(() => video.player && fn(video.player));
+
+  const playerCard = el(
+    'div',
+    { class: 'card' },
+    el('h2', {}, set.title),
+    el('p', { class: 'meta' }, `${formatTime(entry.start)}〜${formatTime(entry.end)}`),
+    frame,
+    el(
+      'div',
+      { class: 'controls' },
+      el(
+        'button',
+        { class: 'btn primary', onclick: withPlayer((p) => p.playSegment(true)) },
+        '🔁 区間をくり返す',
+      ),
+      el(
+        'button',
+        { class: 'btn small', onclick: withPlayer((p) => p.playSegment(false)) },
+        '▶ 1回だけ',
+      ),
+      el('button', { class: 'btn small', onclick: withPlayer((p) => p.pause()) }, '■ 停止'),
+      rate,
+    ),
+  );
+
+  /* ---- 穴埋め ---- */
+  const typed = entry.answers.blanks;
+  const score = el('span', { class: 'score' }, '');
+  const inputs = [];
+  const transcriptList = el('ol', { class: 'transcript' });
+
+  set.transcript.forEach((line, lineIndex) => {
+    const text = el('span', { class: 'line-text' });
+    for (const token of clozeTokens(line.text, set.blanks, lineIndex)) {
+      if (token.type === 'text') {
+        text.append(token.value);
+        continue;
+      }
+      const input = el('input', {
+        type: 'text',
+        class: 'blank',
+        autocomplete: 'off',
+        autocapitalize: 'off',
+        spellcheck: 'false',
+        size: String(Math.max(4, token.answer.length + 1)),
+        'aria-label': `空欄 ${token.index + 1}`,
+      });
+      input.value = typed[token.index] ?? '';
+      input.addEventListener('input', () => {
+        typed[token.index] = input.value;
+        input.classList.remove('correct', 'wrong');
+        persistEntry();
+      });
+      inputs.push({ input, blank: set.blanks[token.index] });
+      text.append(input);
+    }
+    transcriptList.append(
+      el(
+        'li',
+        {},
+        el(
+          'button',
+          {
+            class: 'btn small',
+            'aria-label': `${formatTime(line.start)} から再生`,
+            onclick: withPlayer((p) => p.playLine(line)),
+          },
+          `▶ ${formatTime(line.start)}`,
+        ),
+        el(
+          'div',
+          {},
+          line.speaker ? el('span', { class: 'meta' }, `${line.speaker}: `) : null,
+          text,
+        ),
+      ),
+    );
+  });
+
+  const hints = el('ul', { class: 'explanation hidden' });
+  function check() {
+    const missed = [];
+    for (const { input, blank } of inputs) {
+      const ok = checkBlank(blank.word, input.value);
+      input.classList.toggle('correct', ok);
+      input.classList.toggle('wrong', !ok);
+      if (!ok) missed.push(blank);
+    }
+    const { correct, total } = scoreBlanks(set.blanks, typed);
+    score.textContent = `${correct} / ${total}`;
+    score.classList.toggle('done', correct === total);
+    hints.replaceChildren(...missed.map((b) => el('li', {}, b.hint)));
+    hints.classList.toggle('hidden', missed.length === 0);
+  }
+
+  const clozeCard = el(
+    'div',
+    { class: 'card' },
+    el('h2', {}, '字幕の穴埋め ', score),
+    el('p', { class: 'meta' }, '各行の ▶ でその行だけ再生できます。大文字小文字と句読点は問いません。'),
+    transcriptList,
+    el(
+      'div',
+      { class: 'controls' },
+      el('button', { class: 'btn primary small', onclick: check }, '答え合わせ'),
+      el(
+        'button',
+        {
+          class: 'btn small',
+          onclick: () => {
+            for (const { input, blank } of inputs) input.placeholder = blank.word;
+          },
+        },
+        '答えを薄く表示',
+      ),
+    ),
+    hints,
+  );
+
+  /* ---- クイズ ---- */
+  const quizCard = el(
+    'div',
+    { class: 'card' },
+    el('h2', {}, '内容クイズ'),
+    renderChoiceQuestions('video', set.quiz, {
+      get: (id) => entry.answers.quiz[id],
+      set: (id, value) => {
+        entry.answers.quiz[id] = value;
+        persistEntry();
+      },
+    }),
+  );
+
+  return [playerCard, clozeCard, quizCard];
+}
+
 /* ---------- shell ---------- */
 
 const PANELS = [
@@ -848,12 +1281,14 @@ const PANELS = [
 /** その日の問題に紐づかないタブ。常に最後に並ぶ。 */
 const EXTRA_PANELS = [
   ['review', '採点', reviewPanel],
+  ['video', '動画', videoPanel],
   ['generate', '作成', generatePanel],
   ['settings', '設定', settingsPanel],
 ];
 
 function render(day) {
   stop();
+  destroyVideoPlayer();
   const tabs = $('#tabs');
   const panels = $('#panels');
   tabs.replaceChildren();
@@ -886,6 +1321,7 @@ function render(day) {
 function selectTab(key) {
   state.tab = key;
   stop();
+  if (key !== 'video') video.player?.pause();
   document.querySelectorAll('#panels .panel').forEach((p) => {
     p.classList.toggle('active', p.id === `panel-${key}`);
   });
