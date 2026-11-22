@@ -25,7 +25,23 @@
 
 ブラウザで URL を直接開いて `{"ok":true,...}` が出れば疎通しています。
 
-## 更新するとき
+## clasp で反映する (おすすめ)
+
+`.clasp.json` にスクリプト「Video Clip」の ID を書いてあるので、このフォルダで
+コマンドを打つだけでコードと `appsscript.json` が反映されます。
+
+1. 初回だけ: https://script.google.com/home/usersettings で
+   「Google Apps Script API」をオンにし、`clasp login` でログインする。
+2. `gas/` に移動して `clasp push` を実行する。GAS 側にあってこのフォルダに無いファイル
+   (初期の `コード.gs` など) は消えて、`Code.gs` と `appsscript.json` だけになる。
+3. スクリプト プロパティ (`GEMINI_API_KEY` / `APP_TOKEN`) はエディタで設定する
+   (clasp では送らない。合言葉とキーをリポジトリに置かないため)。
+4. 初回のデプロイ: `clasp deploy --description v1`。表示されるデプロイ ID を控えておく。
+   ウェブアプリの URL は `https://script.google.com/macros/s/<デプロイID>/exec`。
+5. 2回目以降: `clasp push` のあと `clasp deploy -i <デプロイID> --description v2`。
+   `-i` を付けずにデプロイすると URL が変わってしまう。
+
+## エディタで更新するとき
 
 `Code.gs` を書き換えたら「デプロイ」→「デプロイを管理」→ 鉛筆アイコン →
 バージョン「新バージョン」で更新する。「新しいデプロイ」を作ると URL が変わるので注意。
