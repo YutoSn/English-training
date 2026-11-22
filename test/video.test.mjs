@@ -92,6 +92,7 @@ test('buildVideoPrompt は区間・レベル・前回のエラーを埋め込む
   assert.match(prompt, /TOEIC 820/);
   assert.match(prompt, /8個/);
   assert.match(prompt, /3問/);
+  assert.match(prompt, /ja はその行の自然な日本語訳/);
   assert.match(prompt, /前回の出力の問題点[\s\S]*blanks\[0\]/);
   const plain = { start: 0, end: 30, level: levelProfile(600), blanks: 1, questions: 1 };
   assert.doesNotMatch(buildVideoPrompt(plain), /前回/);
@@ -111,8 +112,20 @@ test('videoSchema の required は properties と一致する', () => {
 const good = () => ({
   title: '新製品の発表',
   transcript: [
-    { start: 80.2, end: 84.5, speaker: '', text: "Today we're unveiling something remarkable." },
-    { start: 84.6, end: 90, speaker: '', text: 'It took us three years to get the battery right.' },
+    {
+      start: 80.2,
+      end: 84.5,
+      speaker: '',
+      text: "Today we're unveiling something remarkable.",
+      ja: '本日、驚くべきものを発表します。',
+    },
+    {
+      start: 84.6,
+      end: 90,
+      speaker: '',
+      text: 'It took us three years to get the battery right.',
+      ja: 'バッテリーを完成させるのに3年かかりました。',
+    },
   ],
   blanks: [
     { line: 0, word: 'unveiling', hint: '公開する' },
@@ -154,6 +167,12 @@ test('validateVideoSet は行に無い穴・1行2穴・複数語を弾く', () =
   assert.match(errors, /穴が2つ/);
   assert.match(errors, /1語/);
   assert.match(errors, /範囲外/);
+});
+
+test('validateVideoSet は日本語訳の抜けを弾く', () => {
+  const set = good();
+  delete set.transcript[1].ja;
+  assert.match(validateVideoSet(set, opts).join('\n'), /transcript\[1\]\.ja/);
 });
 
 test('validateVideoSet は語の一部への一致を認めない', () => {

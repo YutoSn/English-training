@@ -273,3 +273,7 @@ input.blank {
 }
 input.blank.correct { border-bottom-color: var(--ok); color: var(--ok); }
 input.blank.wrong { border-bottom-color: var(--ng); color: var(--ng); }
+
+/* 日本語訳は「日本語訳を表示」を押したときだけ出す (先に見ると聞き取りの練習にならない)。 */
+.line-ja { display: none; color: var(--muted); font-size: 0.85rem; margin-top: 0.15rem; }
+ol.transcript.show-ja .line-ja { display: block; }
