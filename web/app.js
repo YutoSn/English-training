@@ -22,6 +22,8 @@ import {
   removeVideoEntry,
   loadSubtitleMode,
   saveSubtitleMode,
+  loadLastVideoId,
+  saveLastVideoId,
 } from './store.js';
 import {
   TOEIC_MIN,
@@ -1123,6 +1125,7 @@ function videoPanel() {
     const entry = id ? loadVideoLibrary().find((e) => e.id === id) : null;
     destroyVideoPlayer();
     video.entryId = entry?.id ?? null;
+    saveLastVideoId(video.entryId);
     viewer.replaceChildren(...(entry ? videoViewer(entry) : []));
     refreshLibrary();
   }
@@ -1132,7 +1135,8 @@ function videoPanel() {
   frag.append(addCard, viewer, libraryCard);
 
   // タブを作り直したとき (別のセットを開いたとき) も開いていた動画を戻す。
-  openEntry(video.entryId);
+  // 起動直後は、前回最後に見ていた動画を開く (消されていれば何も開かない)。
+  openEntry(video.entryId ?? loadLastVideoId());
   return frag;
 }
 
@@ -1474,6 +1478,29 @@ function refreshSetPicker(selected) {
   select.value = selected;
 }
 
+/**
+ * video.html (Android のホーム画面に置くアプリ) は動画タブだけを出す。
+ * 日次セットを読まないので、問題が1つも無くても動く。
+ */
+const VIDEO_ONLY = document.body.dataset.app === 'video';
+
+function renderVideoOnly() {
+  const panel = el('section', { class: 'panel active', id: 'panel-video' });
+  panel.append(videoPanel());
+  $('#panels').replaceChildren(panel);
+  document.body.dataset.tab = 'video';
+}
+
+/**
+ * sw.js を登録する。役目は2つ: Android の「アプリをインストール」の条件を満たすことと、
+ * 起動のたびに最新のファイルを取りに行くこと (古い画面のまま、を防ぐ)。
+ * 失敗してもアプリは普通に動くので握りつぶす。
+ */
+function registerServiceWorker() {
+  if (!('serviceWorker' in navigator)) return;
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+
 /** sticky な動画の top に使うヘッダの高さ。折り返しや表示切り替えで変わるので見張る。 */
 function trackHeaderHeight() {
   const header = document.querySelector('header');
@@ -1485,6 +1512,8 @@ function trackHeaderHeight() {
 
 async function boot() {
   trackHeaderHeight();
+  registerServiceWorker();
+  if (VIDEO_ONLY) return bootVideoOnly();
   try {
     const [config, index, topics] = await Promise.all([
       fetch('data/config.json', { cache: 'no-cache' }).then((r) => r.json()),
@@ -1515,6 +1544,15 @@ async function boot() {
 
     // 生成待ちのまま離脱していたら追いかけを再開する。
     if (loadPendingGeneration()) pollForNewSet();
+  } catch (err) {
+    showError(err);
+  }
+}
+
+async function bootVideoOnly() {
+  try {
+    state.config = await fetch('data/config.json', { cache: 'no-cache' }).then((r) => r.json());
+    renderVideoOnly();
   } catch (err) {
     showError(err);
   }

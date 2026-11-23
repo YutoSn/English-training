@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- English Video のアイコン原本。PNG は scripts/build-icons.cjs で作る。 -->
+  <rect width="512" height="512" rx="112" fill="#2f6df6"/>
+  <rect x="96" y="136" width="320" height="200" rx="36" fill="#fff"/>
+  <path d="M226 186 L226 286 L306 236 Z" fill="#2f6df6"/>
+  <rect x="120" y="372" width="272" height="22" rx="11" fill="#fff" opacity="0.95"/>
+  <rect x="164" y="410" width="184" height="22" rx="11" fill="#fff" opacity="0.6"/>
+</svg>

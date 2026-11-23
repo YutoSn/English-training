@@ -1,0 +1,23 @@
+{
+  "name": "English Video",
+  "short_name": "English Video",
+  "description": "YouTube の区間をくり返し再生し、英語字幕と日本語訳で聞き取りを練習する",
+  "lang": "ja",
+  "id": "./video.html",
+  "start_url": "./video.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f6f7f9",
+  "theme_color": "#2f6df6",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    {
+      "src": "icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

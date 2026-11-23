@@ -121,6 +121,22 @@ node --run models -- --check=gemini-3.1-pro-preview,gemini-3.7-flash
 `node --run new -- --from-file=content.json` に渡す。
 Claude Code からは `/new-day` がこの流れをまとめてやる。
 
+### 動画アプリを Android に入れる
+
+動画タブだけを、ホーム画面から起動できるアプリ (PWA) として入れられる。中身は同じなので、
+このリポジトリを更新すればアプリも次回起動時に最新になる。
+
+1. Android の Chrome で `https://<ユーザー名>.github.io/English-training/video.html` を開く
+2. 「アプリをインストール」が出たら押す。出なければ右上の︙ →「アプリをインストール」
+   (または「ホーム画面に追加」)
+3. ホーム画面の「English Video」から起動する。アドレスバーの無い全画面で、
+   前回見ていた動画が開く
+
+GAS の URL・合言葉・保存した動画はブラウザ (サイト) ごとに保存される。ブラウザで
+使っていた設定はインストールしたアプリにも引き継がれる (同じ Chrome のため)。
+
+YouTube の規約上、画面を消したままの再生 (バックグラウンド再生) はできない。
+
 ## 開発
 
 ```sh

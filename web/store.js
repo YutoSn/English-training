@@ -201,3 +201,12 @@ export function loadSubtitleMode() {
 export function saveSubtitleMode(mode) {
   writeVideo({ ...readVideo(), subtitleMode: mode });
 }
+
+/** 最後に開いていた動画。アプリを開き直したとき、すぐ続きから見られるようにする。 */
+export function loadLastVideoId() {
+  return readVideo().lastId ?? null;
+}
+
+export function saveLastVideoId(id) {
+  writeVideo({ ...readVideo(), lastId: id });
+}
