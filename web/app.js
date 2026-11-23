@@ -20,6 +20,8 @@ import {
   loadVideoLibrary,
   saveVideoEntry,
   removeVideoEntry,
+  loadSubtitleMode,
+  saveSubtitleMode,
 } from './store.js';
 import {
   TOEIC_MIN,
@@ -40,15 +42,14 @@ import { fetchFromGitHub, fetchSetFile, RateLimitError } from './github.js';
 import {
   buildGasRequest,
   buildVideoPrompt,
-  checkBlank,
   checkRange,
-  clozeTokens,
   formatTime,
   GasError,
   parseGasResponse,
   parseTime,
   parseYouTubeUrl,
-  scoreBlanks,
+  resolveSubtitleMode,
+  SUBTITLE_MODES,
   validateVideoSet,
   videoConfig,
   videoLabel,
@@ -878,7 +879,7 @@ function generatePanel() {
  * その場で結果が返る。プロンプトと検証は web/video.js が持ち、検証に落ちたら
  * エラーを添えて作り直す (generate-day.mjs と同じ考え方)。
  */
-const video = { player: null, entryId: null, busy: false };
+const video = { player: null, entryId: null, busy: false, open: null };
 
 function destroyVideoPlayer() {
   video.player?.destroy();
@@ -890,12 +891,11 @@ async function requestVideoSet({ videoId, start, end }, onProgress) {
   if (!gasUrl || !token) throw new Error('先に「接続設定」で GAS の URL と合言葉を保存してください');
 
   const cfg = videoConfig(state.config);
-  const level = levelProfile(state.config.level.toeic);
   let feedback = [];
 
   for (let attempt = 1; attempt <= cfg.attempts; attempt++) {
     onProgress(attempt);
-    const prompt = buildVideoPrompt({ start, end, level, ...cfg, feedback });
+    const prompt = buildVideoPrompt({ start, end, feedback });
     const req = buildGasRequest({ token, videoId, start, end, prompt, model: cfg.model });
     // Content-Type を付けずに文字列で送る = text/plain の単純リクエスト。
     // GAS はプリフライト (OPTIONS) に答えられないので、これ以外の形だと CORS で落ちる。
@@ -907,7 +907,8 @@ async function requestVideoSet({ videoId, start, end }, onProgress) {
       body = await res.json();
     } catch {
       throw new Error(
-        'GAS の応答が JSON ではありません。デプロイの「アクセスできるユーザー」が「全員」か確認してください',
+        'GAS の応答が JSON ではありません。' +
+          'デプロイの「アクセスできるユーザー」が「全員」か確認してください',
       );
     }
 
@@ -919,11 +920,59 @@ async function requestVideoSet({ videoId, start, end }, onProgress) {
       throw err;
     }
 
-    const errors = validateVideoSet(set, { start, end, ...cfg });
+    const errors = validateVideoSet(set, { start, end });
     if (errors.length === 0) return set;
     feedback = errors.slice(0, 15);
   }
-  throw new Error(`教材が条件を満たしませんでした: ${feedback.slice(0, 3).join(' / ')}`);
+  throw new Error(`字幕が条件を満たしませんでした: ${feedback.slice(0, 3).join(' / ')}`);
+}
+
+/**
+ * 字幕を作って保存する。進み具合は setStatus に流す。
+ * 作成フォームと「再生区間を変更」(字幕の無い範囲へ広げたとき) の両方から使う。
+ */
+async function createVideoEntry({ videoId, start, end }, setStatus) {
+  if (video.busy) throw new Error('作成中です。終わるまでお待ちください');
+  video.busy = true;
+  const began = Date.now();
+  const tick = () =>
+    setStatus(`作成中… (${Math.round((Date.now() - began) / 1000)}秒経過 / 目安30秒〜2分)`);
+  tick();
+  const timer = setInterval(tick, 1000);
+  try {
+    const set = await requestVideoSet({ videoId, start, end }, (attempt) => {
+      if (attempt > 1) toast(`条件を満たさなかったので作り直しています (${attempt}回目)`);
+    });
+    const id = `${videoId}@${start}-${end}`;
+    const entry = { id, videoId, start, end, createdAt: Date.now(), set };
+    saveVideoEntry(entry);
+    setStatus('');
+    return entry;
+  } finally {
+    clearInterval(timer);
+    video.busy = false;
+  }
+}
+
+/** 入力欄の時刻を読み、区間として正しくなければ日本語のメッセージを返す。 */
+function readRange(startInput, endInput, minSeconds) {
+  const start = parseTime(startInput.value);
+  const end = parseTime(endInput.value);
+  const error = checkRange(start, end, videoConfig(state.config).maxSeconds, minSeconds);
+  return error ? { error } : { start, end };
+}
+
+const timeInput = (placeholder, label) =>
+  el('input', { type: 'text', placeholder, 'aria-label': label, inputmode: 'numeric' });
+
+function statusLine() {
+  const node = el('p', { class: 'explanation hidden' });
+  node.set = (text, isError = false) => {
+    node.textContent = text;
+    node.classList.toggle('hidden', !text);
+    node.classList.toggle('error', isError);
+  };
+  return node;
 }
 
 function videoPanel() {
@@ -936,11 +985,9 @@ function videoPanel() {
     placeholder: 'https://www.youtube.com/watch?v=...',
     'aria-label': 'YouTube の URL',
   });
-  const timeInput = (placeholder, label) =>
-    el('input', { type: 'text', placeholder, 'aria-label': label, inputmode: 'numeric' });
   const startInput = timeInput('開始 1:20', '開始時刻');
   const endInput = timeInput('終了 2:05', '終了時刻');
-  const status = el('p', { class: 'explanation hidden' });
+  const status = statusLine();
 
   // 共有リンクに t= が付いていれば開始に入れておく。
   urlInput.addEventListener('change', () => {
@@ -948,54 +995,24 @@ function videoPanel() {
     if (parsed?.start != null && !startInput.value) startInput.value = formatTime(parsed.start);
   });
 
-  function setStatus(text, isError = false) {
-    status.textContent = text;
-    status.classList.toggle('hidden', !text);
-    status.classList.toggle('error', isError);
-  }
-
   const submit = el(
     'button',
     {
       class: 'btn primary',
       onclick: async () => {
-        if (video.busy) return;
         const parsed = parseYouTubeUrl(urlInput.value);
-        if (!parsed) return setStatus('YouTube の動画 URL を入れてください', true);
-        const start = parseTime(startInput.value);
-        const end = parseTime(endInput.value);
-        const rangeError = checkRange(start, end, videoConfig(state.config).maxSeconds);
-        if (rangeError) return setStatus(rangeError, true);
+        if (!parsed) return status.set('YouTube の動画 URL を入れてください', true);
+        const range = readRange(startInput, endInput);
+        if (range.error) return status.set(range.error, true);
 
-        video.busy = true;
         submit.classList.add('disabled');
-        const began = Date.now();
-        const tick = setInterval(() => {
-          setStatus(`作成中… (${Math.round((Date.now() - began) / 1000)}秒経過 / 目安30秒〜2分)`);
-        }, 1000);
         try {
-          const set = await requestVideoSet({ videoId: parsed.id, start, end }, (attempt) => {
-            if (attempt > 1) toast(`条件を満たさなかったので作り直しています (${attempt}回目)`);
-          });
-          const entry = {
-            id: `${parsed.id}@${start}-${end}`,
-            videoId: parsed.id,
-            start,
-            end,
-            createdAt: Date.now(),
-            set,
-            answers: { blanks: {}, quiz: {} },
-          };
-          saveVideoEntry(entry);
-          setStatus('');
-          refreshLibrary(entry.id);
+          const entry = await createVideoEntry({ videoId: parsed.id, ...range }, status.set);
           openEntry(entry.id);
-          toast('教材ができました');
+          toast('字幕ができました');
         } catch (err) {
-          setStatus(err.message ?? String(err), true);
+          status.set(err.message ?? String(err), true);
         } finally {
-          clearInterval(tick);
-          video.busy = false;
           submit.classList.remove('disabled');
         }
       },
@@ -1046,73 +1063,82 @@ function videoPanel() {
     ),
   );
 
-  /* ---- 保存済み ---- */
-  const librarySelect = el('select', { 'aria-label': '保存した教材' });
-  const removeBtn = el(
-    'button',
-    {
-      class: 'btn small',
-      onclick: () => {
-        if (!video.entryId) return;
-        removeVideoEntry(video.entryId);
-        destroyVideoPlayer();
-        video.entryId = null;
-        viewer.replaceChildren();
-        refreshLibrary();
-        toast('削除しました');
-      },
-    },
-    '削除',
-  );
-  const library = el('div', { class: 'controls' }, librarySelect, removeBtn);
-  librarySelect.addEventListener('change', () => openEntry(librarySelect.value));
+  /* ---- 保存した動画 ---- */
+  const libraryList = el('ul', { class: 'video-library' });
+  const libraryCard = el('div', { class: 'card' }, el('h2', {}, '保存した動画'), libraryList);
 
-  function refreshLibrary(selected = video.entryId) {
+  function refreshLibrary() {
     const entries = loadVideoLibrary();
-    librarySelect.replaceChildren(
-      el('option', { value: '' }, entries.length ? '保存した教材を開く' : '保存した教材はありません'),
-      ...entries.map((e) => el('option', { value: e.id }, videoLabel(e))),
+    libraryList.replaceChildren(
+      ...entries.map((entry) =>
+        el(
+          'li',
+          { class: entry.id === video.entryId ? 'current' : '' },
+          el(
+            'button',
+            { class: 'link', onclick: () => openEntry(entry.id) },
+            el('span', {}, entry.set?.title ?? entry.videoId),
+            el('span', { class: 'meta' }, `${formatTime(entry.start)}〜${formatTime(entry.end)}`),
+          ),
+          el(
+            'button',
+            {
+              class: 'btn small',
+              'aria-label': `${videoLabel(entry)} を削除`,
+              onclick: () => {
+                if (!confirm(`「${videoLabel(entry)}」を削除しますか？`)) return;
+                removeVideoEntry(entry.id);
+                if (entry.id === video.entryId) openEntry(null);
+                else refreshLibrary();
+                toast('削除しました');
+              },
+            },
+            '削除',
+          ),
+        ),
+      ),
     );
-    librarySelect.value = selected ?? '';
-    removeBtn.classList.toggle('hidden', !selected);
+    libraryCard.classList.toggle('hidden', entries.length === 0);
   }
 
   function openEntry(id) {
-    const entry = loadVideoLibrary().find((e) => e.id === id);
+    const entry = id ? loadVideoLibrary().find((e) => e.id === id) : null;
     destroyVideoPlayer();
     video.entryId = entry?.id ?? null;
-    removeBtn.classList.toggle('hidden', !entry);
     viewer.replaceChildren(...(entry ? videoViewer(entry) : []));
+    refreshLibrary();
   }
+  // 再生区間の変更で新しい字幕を作ったとき、ビューアからも開けるように。
+  video.open = openEntry;
 
   frag.append(
     el(
       'div',
       { class: 'card' },
-      el('h2', {}, '動画から教材を作る'),
+      el('h2', {}, '動画を追加'),
       el(
         'p',
         { class: 'meta' },
-        'YouTube の公開動画の URL と区間 (5分以内) を入れると、字幕の穴埋めと内容クイズを作ります。',
+        'YouTube の公開動画の URL と区間 (5分以内) を入れると、英語字幕と日本語訳を作ります。',
       ),
       el('div', { class: 'controls topic-form' }, urlInput),
       el('div', { class: 'controls topic-form' }, startInput, endInput, submit),
       status,
       connection,
-      library,
     ),
     viewer,
+    libraryCard,
   );
 
-  refreshLibrary();
-  // タブを作り直したとき (別のセットを開いたとき) も開いていた教材を戻す。
-  if (video.entryId) openEntry(video.entryId);
+  // タブを作り直したとき (別のセットを開いたとき) も開いていた動画を戻す。
+  openEntry(video.entryId);
   return frag;
 }
 
 function videoViewer(entry) {
   const { set } = entry;
-  const persistEntry = () => saveVideoEntry(entry);
+  // 再生区間。字幕を作った範囲の内側なら、作り直さずに狭めたり動かしたりできる。
+  const play = { start: entry.play?.start ?? entry.start, end: entry.play?.end ?? entry.end };
 
   /* ---- プレーヤー ---- */
   const host = el('div', {});
@@ -1125,20 +1151,86 @@ function videoViewer(entry) {
   rate.value = '1';
   rate.addEventListener('change', () => video.player?.setRate(Number(rate.value)));
 
-  const ready = createPlayer(host, entry)
+  const ready = createPlayer(host, { videoId: entry.videoId, ...play })
     .then((player) => {
-      // 待っている間に別の教材を開いていたら捨てる。
+      // 待っている間に別の動画を開いていたら捨てる。
       if (video.entryId !== entry.id) return player.destroy();
       video.player = player;
     })
     .catch((err) => toast(err.message));
   const withPlayer = (fn) => () => ready.then(() => video.player && fn(video.player));
 
+  /* ---- 再生区間 ---- */
+  const rangeLabel = el('p', { class: 'meta' });
+  const playStart = timeInput('開始', '再生区間の開始');
+  const playEnd = timeInput('終了', '再生区間の終了');
+  const rangeStatus = statusLine();
+  const resetBtn = el(
+    'button',
+    { class: 'btn small', onclick: () => applyPlayRange(entry.start, entry.end) },
+    '最初の区間に戻す',
+  );
+
+  function refreshRange() {
+    playStart.value = formatTime(play.start);
+    playEnd.value = formatTime(play.end);
+    const narrowed = play.start !== entry.start || play.end !== entry.end;
+    rangeLabel.textContent =
+      `再生区間 ${formatTime(play.start)}〜${formatTime(play.end)}` +
+      (narrowed ? ` (字幕は ${formatTime(entry.start)}〜${formatTime(entry.end)})` : '');
+    resetBtn.classList.toggle('hidden', !narrowed);
+  }
+
+  function applyPlayRange(start, end) {
+    play.start = start;
+    play.end = end;
+    entry.play = start === entry.start && end === entry.end ? undefined : { start, end };
+    saveVideoEntry(entry);
+    video.player?.setSegment(start, end);
+    refreshRange();
+    renderTranscript();
+  }
+
+  const changeBtn = el(
+    'button',
+    {
+      class: 'btn small',
+      onclick: async () => {
+        // 字幕のある範囲の内側なら、再生区間を変えるだけ (API を呼ばない)。
+        // 1文だけのくり返しもできるよう、このときは1秒から受け付ける。
+        const inner = readRange(playStart, playEnd, 1);
+        if (!inner.error && inner.start >= entry.start && inner.end <= entry.end) {
+          rangeStatus.set('');
+          applyPlayRange(inner.start, inner.end);
+          return toast('再生区間を変更しました');
+        }
+        const range = readRange(playStart, playEnd);
+        if (range.error) return rangeStatus.set(range.error, true);
+        rangeStatus.set('');
+        // 外側にはみ出すときは、その区間の字幕を新しく作る。
+        changeBtn.classList.add('disabled');
+        try {
+          const created = await createVideoEntry(
+            { videoId: entry.videoId, ...range },
+            rangeStatus.set,
+          );
+          video.open?.(created.id);
+          toast('新しい区間の字幕ができました');
+        } catch (err) {
+          rangeStatus.set(err.message ?? String(err), true);
+        } finally {
+          changeBtn.classList.remove('disabled');
+        }
+      },
+    },
+    '変更',
+  );
+
   const playerCard = el(
     'div',
     { class: 'card' },
     el('h2', {}, set.title),
-    el('p', { class: 'meta' }, `${formatTime(entry.start)}〜${formatTime(entry.end)}`),
+    rangeLabel,
     frame,
     el(
       'div',
@@ -1156,138 +1248,103 @@ function videoViewer(entry) {
       el('button', { class: 'btn small', onclick: withPlayer((p) => p.pause()) }, '■ 停止'),
       rate,
     ),
+    el(
+      'details',
+      {},
+      el('summary', { class: 'meta' }, '再生区間を変更'),
+      el(
+        'p',
+        { class: 'meta' },
+        `字幕のある ${formatTime(entry.start)}〜${formatTime(entry.end)} の内側ならすぐ切り替わります。` +
+          'はみ出す区間は字幕を新しく作ります。',
+      ),
+      el('div', { class: 'controls topic-form' }, playStart, playEnd, changeBtn, resetBtn),
+      rangeStatus,
+    ),
   );
 
-  /* ---- 穴埋め ---- */
-  const typed = entry.answers.blanks;
-  const score = el('span', { class: 'score' }, '');
-  const inputs = [];
+  /* ---- 字幕 ---- */
   const transcriptList = el('ol', { class: 'transcript' });
+  const noneNote = el(
+    'p',
+    { class: 'meta' },
+    '字幕を隠しています。各行の ▶ でその部分だけ再生できます。',
+  );
+  let mode = resolveSubtitleMode(loadSubtitleMode(), set.transcript);
+  const hasJa = resolveSubtitleMode('ja', set.transcript) === 'ja';
 
-  set.transcript.forEach((line, lineIndex) => {
-    const text = el('span', { class: 'line-text' });
-    for (const token of clozeTokens(line.text, set.blanks, lineIndex)) {
-      if (token.type === 'text') {
-        text.append(token.value);
-        continue;
-      }
-      const input = el('input', {
-        type: 'text',
-        class: 'blank',
-        autocomplete: 'off',
-        autocapitalize: 'off',
-        spellcheck: 'false',
-        size: String(Math.max(4, token.answer.length + 1)),
-        'aria-label': `空欄 ${token.index + 1}`,
-      });
-      input.value = typed[token.index] ?? '';
-      input.addEventListener('input', () => {
-        typed[token.index] = input.value;
-        input.classList.remove('correct', 'wrong');
-        persistEntry();
-      });
-      inputs.push({ input, blank: set.blanks[token.index] });
-      text.append(input);
-    }
-    transcriptList.append(
-      el(
-        'li',
-        {},
-        el(
-          'button',
-          {
-            class: 'btn small',
-            'aria-label': `${formatTime(line.start)} から再生`,
-            onclick: withPlayer((p) => p.playLine(line)),
-          },
-          `▶ ${formatTime(line.start)}`,
-        ),
-        el(
-          'div',
-          {},
-          line.speaker ? el('span', { class: 'meta' }, `${line.speaker}: `) : null,
-          text,
-          line.ja ? el('div', { class: 'line-ja' }, line.ja) : null,
-        ),
-      ),
-    );
-  });
+  const modeButtons = SUBTITLE_MODES.map((m) =>
+    el(
+      'button',
+      {
+        class: 'btn small',
+        'aria-pressed': 'false',
+        // 日本語訳を作る前に保存した動画には ja が無い。
+        ...(m.id === 'ja' && !hasJa ? { disabled: 'disabled', title: '日本語訳がありません' } : {}),
+        onclick: () => {
+          mode = m.id;
+          saveSubtitleMode(mode);
+          refreshMode();
+        },
+      },
+      m.label,
+    ),
+  );
 
-  const hints = el('ul', { class: 'explanation hidden' });
-  function check() {
-    const missed = [];
-    for (const { input, blank } of inputs) {
-      const ok = checkBlank(blank.word, input.value);
-      input.classList.toggle('correct', ok);
-      input.classList.toggle('wrong', !ok);
-      if (!ok) missed.push(blank);
-    }
-    const { correct, total } = scoreBlanks(set.blanks, typed);
-    score.textContent = `${correct} / ${total}`;
-    score.classList.toggle('done', correct === total);
-    hints.replaceChildren(...missed.map((b) => el('li', {}, b.hint)));
-    hints.classList.toggle('hidden', missed.length === 0);
+  function refreshMode() {
+    SUBTITLE_MODES.forEach((m, i) => {
+      modeButtons[i].setAttribute('aria-pressed', String(m.id === mode));
+    });
+    transcriptList.className = `transcript subs-${mode}`;
+    noneNote.classList.toggle('hidden', mode !== 'none');
   }
 
-  const clozeCard = el(
-    'div',
-    { class: 'card' },
-    el('h2', {}, '字幕の穴埋め ', score),
-    el('p', { class: 'meta' }, '各行の ▶ でその行だけ再生できます。大文字小文字と句読点は問いません。'),
-    // 日本語訳を作る前に保存した教材には ja が無いので、そのときはボタンごと出さない。
-    set.transcript.some((l) => l.ja)
-      ? el(
-          'div',
-          { class: 'controls' },
+  function renderTranscript() {
+    // 再生区間に少しでも掛かる行だけを出す。
+    const lines = set.transcript.filter((l) => l.end > play.start && l.start < play.end);
+    transcriptList.replaceChildren(
+      ...lines.map((line) =>
+        el(
+          'li',
+          {},
           el(
             'button',
             {
               class: 'btn small',
-              'aria-pressed': 'false',
-              onclick: (e) => {
-                const on = transcriptList.classList.toggle('show-ja');
-                e.currentTarget.setAttribute('aria-pressed', String(on));
-                e.currentTarget.textContent = on ? '日本語訳を隠す' : '日本語訳を表示';
-              },
+              'aria-label': `${formatTime(line.start)} から再生`,
+              onclick: withPlayer((p) => p.playLine(line)),
             },
-            '日本語訳を表示',
+            `▶ ${formatTime(line.start)}`,
           ),
-        )
-      : null,
-    transcriptList,
-    el(
-      'div',
-      { class: 'controls' },
-      el('button', { class: 'btn primary small', onclick: check }, '答え合わせ'),
-      el(
-        'button',
-        {
-          class: 'btn small',
-          onclick: () => {
-            for (const { input, blank } of inputs) input.placeholder = blank.word;
-          },
-        },
-        '答えを薄く表示',
+          el(
+            'div',
+            { class: 'line' },
+            el(
+              'div',
+              { class: 'line-en' },
+              line.speaker ? el('span', { class: 'meta' }, `${line.speaker}: `) : null,
+              line.text,
+            ),
+            line.ja ? el('div', { class: 'line-ja' }, line.ja) : null,
+          ),
+        ),
       ),
-    ),
-    hints,
-  );
+    );
+  }
 
-  /* ---- クイズ ---- */
-  const quizCard = el(
+  const subtitleCard = el(
     'div',
     { class: 'card' },
-    el('h2', {}, '内容クイズ'),
-    renderChoiceQuestions('video', set.quiz, {
-      get: (id) => entry.answers.quiz[id],
-      set: (id, value) => {
-        entry.answers.quiz[id] = value;
-        persistEntry();
-      },
-    }),
+    el('h2', {}, '字幕'),
+    el('div', { class: 'controls segmented', role: 'group', 'aria-label': '字幕の表示' }, modeButtons),
+    noneNote,
+    transcriptList,
   );
 
-  return [playerCard, clozeCard, quizCard];
+  refreshRange();
+  renderTranscript();
+  refreshMode();
+  return [playerCard, subtitleCard];
 }
 
 /* ---------- shell ---------- */

@@ -7,7 +7,6 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import { buildGasRequest, buildVideoPrompt, videoSchema } from '../web/video.js';
-import { levelProfile } from '../web/level.js';
 
 const source = fs.readFileSync(new URL('../gas/Code.gs', import.meta.url), 'utf8');
 
@@ -47,13 +46,7 @@ const request = (overrides = {}) => ({
     videoId: 'dQw4w9WgXcQ',
     start: 80,
     end: 125,
-    prompt: buildVideoPrompt({
-      start: 80,
-      end: 125,
-      level: levelProfile(820),
-      blanks: 8,
-      questions: 3,
-    }),
+    prompt: buildVideoPrompt({ start: 80, end: 125 }),
     model: 'gemini-flash-latest',
   }),
   ...overrides,

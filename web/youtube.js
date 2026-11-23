@@ -34,6 +34,8 @@ function loadApi() {
 export async function createPlayer(host, { videoId, start, end }) {
   const YT = await loadApi();
   let player;
+  // 「区間をくり返す」の対象。setSegment で作り直さずに変えられる。
+  const segment = { start, end };
   // 再生中の範囲。区間ループなら [start, end]、1行再生ならその行。
   let range = { from: start, to: end, loop: true };
   let timer = null;
@@ -65,7 +67,13 @@ export async function createPlayer(host, { videoId, start, end }) {
   }
 
   return {
-    playSegment: (loop = true) => playRange(start, end, loop),
+    playSegment: (loop = true) => playRange(segment.start, segment.end, loop),
+    setSegment: (from, to) => {
+      segment.start = from;
+      segment.end = to;
+      // ループ中なら新しい区間で回り直す。
+      if (range.loop) playRange(from, to, true);
+    },
     playLine: (line, loop = false) => playRange(line.start, line.end + 0.3, loop),
     pause: () => player.pauseVideo(),
     setRate: (rate) => player.setPlaybackRate(rate),
