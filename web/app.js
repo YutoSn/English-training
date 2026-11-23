@@ -1227,28 +1227,13 @@ function videoViewer(entry) {
     '変更',
   );
 
-  const playerCard = el(
+  // 見出しと区間の変更はスクロールで流れてよい。動画と再生ボタンだけを上に固定する
+  // (player-stage)。固定は親 (ビューア) の中で効くので、字幕カードを読み進める間ずっと見える。
+  const infoCard = el(
     'div',
     { class: 'card' },
     el('h2', {}, set.title),
     rangeLabel,
-    frame,
-    el(
-      'div',
-      { class: 'controls' },
-      el(
-        'button',
-        { class: 'btn primary', onclick: withPlayer((p) => p.playSegment(true)) },
-        '🔁 区間をくり返す',
-      ),
-      el(
-        'button',
-        { class: 'btn small', onclick: withPlayer((p) => p.playSegment(false)) },
-        '▶ 1回だけ',
-      ),
-      el('button', { class: 'btn small', onclick: withPlayer((p) => p.pause()) }, '■ 停止'),
-      rate,
-    ),
     el(
       'details',
       {},
@@ -1261,6 +1246,36 @@ function videoViewer(entry) {
       ),
       el('div', { class: 'controls topic-form' }, playStart, playEnd, changeBtn, resetBtn),
       rangeStatus,
+    ),
+  );
+
+  const stage = el(
+    'div',
+    { class: 'player-stage' },
+    frame,
+    el(
+      'div',
+      { class: 'controls' },
+      el(
+        'button',
+        {
+          class: 'btn primary small',
+          'aria-label': '区間をくり返す',
+          onclick: withPlayer((p) => p.playSegment(true)),
+        },
+        '🔁 くり返す',
+      ),
+      el(
+        'button',
+        {
+          class: 'btn small',
+          'aria-label': '区間を1回だけ再生',
+          onclick: withPlayer((p) => p.playSegment(false)),
+        },
+        '▶ 1回',
+      ),
+      el('button', { class: 'btn small', onclick: withPlayer((p) => p.pause()) }, '■ 停止'),
+      rate,
     ),
   );
 
@@ -1347,7 +1362,7 @@ function videoViewer(entry) {
   refreshRange();
   renderTranscript();
   refreshMode();
-  return [playerCard, subtitleCard];
+  return [infoCard, stage, subtitleCard];
 }
 
 /* ---------- shell ---------- */
@@ -1408,6 +1423,8 @@ function render(day) {
 
 function selectTab(key) {
   state.tab = key;
+  // 動画タブでは日付の選択がいらないので、ヘッダを詰めて字幕の表示幅を空ける (CSS 側)。
+  document.body.dataset.tab = key;
   stop();
   if (key !== 'video') video.player?.pause();
   document.querySelectorAll('#panels .panel').forEach((p) => {
@@ -1453,7 +1470,17 @@ function refreshSetPicker(selected) {
   select.value = selected;
 }
 
+/** sticky な動画の top に使うヘッダの高さ。折り返しや表示切り替えで変わるので見張る。 */
+function trackHeaderHeight() {
+  const header = document.querySelector('header');
+  const update = () =>
+    document.documentElement.style.setProperty('--header-h', `${header.offsetHeight}px`);
+  update();
+  if ('ResizeObserver' in window) new ResizeObserver(update).observe(header);
+}
+
 async function boot() {
+  trackHeaderHeight();
   try {
     const [config, index, topics] = await Promise.all([
       fetch('data/config.json', { cache: 'no-cache' }).then((r) => r.json()),

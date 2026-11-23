@@ -297,3 +297,30 @@ button.link {
   text-align: left;
   cursor: pointer;
 }
+
+/*
+ * 動画を上に固定し、字幕だけが下でスクロールする。top はヘッダの高さ
+ * (app.js が --header-h に入れる)。固定は親のビューアの中で効くので、
+ * 字幕カードを過ぎて「保存した動画」まで来たら一緒に流れる。
+ */
+.player-stage {
+  position: sticky;
+  top: var(--header-h, 0px);
+  z-index: 5;
+  background: var(--bg);
+  margin: 0 -1rem 1rem;
+  padding: 0.5rem 1rem 0.1rem;
+  border-bottom: 1px solid var(--border);
+}
+.player-stage .video-frame { margin-bottom: 0.5rem; }
+.player-stage .controls { margin-bottom: 0.4rem; flex-wrap: nowrap; gap: 0.4rem; }
+.player-stage .controls .btn { white-space: nowrap; }
+
+/* 動画タブでは日付の選択とセット情報を出さない (ヘッダを1行にして字幕の場所を空ける)。 */
+body[data-tab="video"] #day-select,
+body[data-tab="video"] #day-meta { display: none; }
+
+/* 横向きのスマホなど背の低い画面では、動画が画面を占めすぎないよう高さで抑える。 */
+@media (max-height: 560px) {
+  .player-stage .video-frame { aspect-ratio: auto; height: 45vh; }
+}
