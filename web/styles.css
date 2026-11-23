@@ -216,6 +216,11 @@ ul.topic-queue li > button { grid-column: 2; grid-row: 1 / 3; white-space: nowra
 
 details summary { cursor: pointer; padding: 0.5rem 0; }
 
+/* 「動画を追加」は畳んだときに1行になるよう、見出しを summary の中に並べる。 */
+details.add-card { padding-top: 0.25rem; padding-bottom: 0.25rem; }
+details.add-card[open] { padding-bottom: 1rem; }
+details.add-card > summary h2 { display: inline; margin: 0; font-size: 0.95rem; }
+
 .btn.disabled { opacity: 0.45; pointer-events: none; }
 
 input[type="range"] { accent-color: var(--accent); }

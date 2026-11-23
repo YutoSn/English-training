@@ -1009,6 +1009,7 @@ function videoPanel() {
         submit.classList.add('disabled');
         try {
           const entry = await createVideoEntry({ videoId: parsed.id, ...range }, status.set);
+          addCard.open = false;
           openEntry(entry.id);
           toast('字幕ができました');
         } catch (err) {
@@ -1064,6 +1065,22 @@ function videoPanel() {
     ),
   );
 
+  // 普段は畳んでおき、動画を一番上に出す。保存した動画が1本も無いときだけ最初から開く。
+  const addCard = el(
+    'details',
+    { class: 'card add-card', ...(loadVideoLibrary().length ? {} : { open: 'open' }) },
+    el('summary', {}, el('h2', {}, '＋ 動画を追加')),
+    el(
+      'p',
+      { class: 'meta' },
+      'YouTube の公開動画の URL と区間 (5分以内) を入れると、英語字幕と日本語訳を作ります。',
+    ),
+    el('div', { class: 'controls topic-form' }, urlInput),
+    el('div', { class: 'controls topic-form' }, startInput, endInput, submit),
+    status,
+    connection,
+  );
+
   /* ---- 保存した動画 ---- */
   const libraryList = el('ul', { class: 'video-library' });
   const libraryCard = el('div', { class: 'card' }, el('h2', {}, '保存した動画'), libraryList);
@@ -1112,24 +1129,7 @@ function videoPanel() {
   // 再生区間の変更で新しい字幕を作ったとき、ビューアからも開けるように。
   video.open = openEntry;
 
-  frag.append(
-    el(
-      'div',
-      { class: 'card' },
-      el('h2', {}, '動画を追加'),
-      el(
-        'p',
-        { class: 'meta' },
-        'YouTube の公開動画の URL と区間 (5分以内) を入れると、英語字幕と日本語訳を作ります。',
-      ),
-      el('div', { class: 'controls topic-form' }, urlInput),
-      el('div', { class: 'controls topic-form' }, startInput, endInput, submit),
-      status,
-      connection,
-    ),
-    viewer,
-    libraryCard,
-  );
+  frag.append(addCard, viewer, libraryCard);
 
   // タブを作り直したとき (別のセットを開いたとき) も開いていた動画を戻す。
   openEntry(video.entryId);
@@ -1229,24 +1229,20 @@ function videoViewer(entry) {
 
   // 見出しと区間の変更はスクロールで流れてよい。動画と再生ボタンだけを上に固定する
   // (player-stage)。固定は親 (ビューア) の中で効くので、字幕カードを読み進める間ずっと見える。
-  const infoCard = el(
+  // 区間の変更は字幕の下に置く。上は動画 (固定) と字幕だけにして、操作の邪魔をしない。
+  const rangeCard = el(
     'div',
     { class: 'card' },
-    el('h2', {}, set.title),
+    el('h2', {}, '再生区間'),
     rangeLabel,
     el(
-      'details',
-      {},
-      el('summary', { class: 'meta' }, '再生区間を変更'),
-      el(
-        'p',
-        { class: 'meta' },
-        `字幕のある ${formatTime(entry.start)}〜${formatTime(entry.end)} の内側ならすぐ切り替わります。` +
-          'はみ出す区間は字幕を新しく作ります。',
-      ),
-      el('div', { class: 'controls topic-form' }, playStart, playEnd, changeBtn, resetBtn),
-      rangeStatus,
+      'p',
+      { class: 'meta' },
+      `字幕のある ${formatTime(entry.start)}〜${formatTime(entry.end)} の内側ならすぐ切り替わります。` +
+        'はみ出す区間は字幕を新しく作ります。',
     ),
+    el('div', { class: 'controls topic-form' }, playStart, playEnd, changeBtn, resetBtn),
+    rangeStatus,
   );
 
   const stage = el(
@@ -1359,12 +1355,18 @@ function videoViewer(entry) {
     ),
   );
 
-  const subtitleCard = el('div', { class: 'card' }, el('h2', {}, '字幕'), noneNote, transcriptList);
+  const subtitleCard = el(
+    'div',
+    { class: 'card' },
+    el('h2', {}, set.title),
+    noneNote,
+    transcriptList,
+  );
 
   refreshRange();
   renderTranscript();
   refreshMode();
-  return [infoCard, stage, subtitleCard];
+  return [stage, subtitleCard, rangeCard];
 }
 
 /* ---------- shell ---------- */
