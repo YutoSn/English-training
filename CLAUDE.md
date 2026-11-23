@@ -210,6 +210,11 @@ web/app.js videoPanel ──POST (text/plain)──▶ GAS doPost ──▶ Gemi
   かつ英文が文末 (`.` `?` `!`) で終わる」ところまでつなぐ。文末が来なければ `maxSeconds` で切る。
   保存データは書き換えないので、古い動画にも効き、`data/config.json` の `video.segment` を
   変えれば作り直さずに区切りが変わる。プロンプトでも同じ大きさで区切るよう頼んでいる。
+- **動画と再生ボタン (`.player-stage`) は `position: sticky` で上に固定**し、字幕だけが
+  スクロールする。top はヘッダの高さで、`trackHeaderHeight()` が `--header-h` に入れる。
+  固定は親のビューアの中でしか効かないので、stage・字幕カードを同じ親に置くこと
+  (見出しと区間変更は stage の前の別カード)。動画タブではヘッダの日付選択を隠す
+  (`body[data-tab="video"]`)。
 - 再生は `web/youtube.js` (IFrame Player API) に閉じる。区間の終わりを知らせる
   イベントが無いので、再生中だけ 150ms 間隔で時刻を見張ってループさせている。
 
