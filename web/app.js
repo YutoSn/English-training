@@ -45,6 +45,7 @@ import {
   checkRange,
   formatTime,
   GasError,
+  groupTranscript,
   parseGasResponse,
   parseTime,
   parseYouTubeUrl,
@@ -1270,6 +1271,8 @@ function videoViewer(entry) {
     { class: 'meta' },
     '字幕を隠しています。各行の ▶ でその部分だけ再生できます。',
   );
+  // ▶ で再生する単位。短い行は文末までつないでおく (表示時に通すので古いデータにも効く)。
+  const segments = groupTranscript(set.transcript, videoConfig(state.config).segment);
   let mode = resolveSubtitleMode(loadSubtitleMode(), set.transcript);
   const hasJa = resolveSubtitleMode('ja', set.transcript) === 'ja';
 
@@ -1301,7 +1304,7 @@ function videoViewer(entry) {
 
   function renderTranscript() {
     // 再生区間に少しでも掛かる行だけを出す。
-    const lines = set.transcript.filter((l) => l.end > play.start && l.start < play.end);
+    const lines = segments.filter((l) => l.end > play.start && l.start < play.end);
     transcriptList.replaceChildren(
       ...lines.map((line) =>
         el(

@@ -50,7 +50,12 @@
     "model": "gemini-flash-latest",
     "maxSeconds": 300,
     "attempts": 2,
-    "note": "動画タブ (YouTube) の字幕生成の設定。生成は GAS ウェブアプリ経由 (gas/README.md)。maxSeconds を GAS の上限 600 より大きくしないこと。"
+    "segment": {
+      "minWords": 12,
+      "minSeconds": 5,
+      "maxSeconds": 30
+    },
+    "note": "動画タブ (YouTube) の字幕生成の設定。生成は GAS ウェブアプリ経由 (gas/README.md)。maxSeconds を GAS の上限 600 より大きくしないこと。 segment は字幕1行 (▶ で再生する単位) の大きさ。短い行は文末までつながれる。"
   },
   "repo": "YutoSn/English-training"
 }

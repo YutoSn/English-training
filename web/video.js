@@ -12,6 +12,8 @@ export const VIDEO_DEFAULTS = {
   // 長い区間は Gemini の処理が GAS の実行時間内に収まらなくなる。
   maxSeconds: 300,
   attempts: 2,
+  // 字幕1行 (= ▶ で再生する単位) の大きさ。groupTranscript が短い行をこの大きさまでつなぐ。
+  segment: { minWords: 12, minSeconds: 5, maxSeconds: 30 },
 };
 
 export function videoConfig(config) {
@@ -116,7 +118,9 @@ export function buildVideoPrompt({ start, end, feedback = [] }) {
     '',
     '## transcript',
     '- 区間内で話されている英語を、聞こえたとおりに一字一句書き起こす。要約・言い換えはしない。',
-    '- 1要素は1文か、ひと息で話される句 (目安3〜12秒)。',
+    '- 1要素は、文末 (ピリオド・?・!) で終わる意味のまとまり (目安15〜40語、5〜20秒)。',
+    '  "Hi." "Okay." のような短い挨拶・相づちは単独の要素にせず、次の文とつなげる。',
+    '  文の途中で要素を切らない。',
     `- start / end は**動画の先頭からの秒数** (区間の先頭からではない)。` +
       `${start}〜${end} の範囲に収め、時系列順に並べる。`,
     '- 話者が複数いて区別できるときは speaker に名前か "A" "B" を入れる。分からなければ空文字。',
@@ -199,6 +203,77 @@ export function validateVideoSet(set, { start, end }) {
   });
 
   return errors;
+}
+
+/* ---------- 字幕の区切り ---------- */
+
+const CLOSERS = /["'”’)\]]+$/;
+
+/**
+ * 文末で終わっているか。"..." や "…" は言いさしなので文末とみなさない。
+ * 区切りは英文で判断する (日本語訳の句点は見ない)。
+ */
+export function endsSentence(text) {
+  const t = String(text ?? '').trim().replace(CLOSERS, '');
+  if (/(\.\.|…)$/.test(t)) return false;
+  return /[.!?]$/.test(t);
+}
+
+const wordCount = (text) => String(text ?? '').trim().split(/\s+/).filter(Boolean).length;
+
+/**
+ * 短い行をつないで、ある程度の長さで文末に終わるまとまりにする。
+ * "Hi." だけの行を ▶ で再生しても練習にならないため。
+ *
+ * 1つのまとまりは、minWords 語以上か minSeconds 秒以上になり、かつ文末で終わるところで
+ * 切る。文末が来ないまま maxSeconds 秒を超えたら、そこで切る (句読点の無い書き起こし対策)。
+ * 生成済みのデータを書き換えず表示時に通すので、古い保存データにもそのまま効く。
+ */
+export function groupTranscript(lines, options = {}) {
+  const { minWords, minSeconds, maxSeconds } = { ...VIDEO_DEFAULTS.segment, ...options };
+  const groups = [];
+  let current = [];
+  const bigEnough = (group) =>
+    group.reduce((n, l) => n + wordCount(l.text), 0) >= minWords ||
+    group.at(-1).end - group[0].start >= minSeconds;
+
+  for (const line of lines) {
+    current.push(line);
+    const seconds = line.end - current[0].start;
+    if ((bigEnough(current) && endsSentence(line.text)) || seconds >= maxSeconds) {
+      groups.push(current);
+      current = [];
+    }
+  }
+  if (current.length) {
+    // 最後に短い端切れが残ったら、長くなりすぎない限り1つ前のまとまりに足す。
+    const prev = groups.at(-1);
+    if (prev && !bigEnough(current) && current.at(-1).end - prev[0].start <= maxSeconds) {
+      prev.push(...current);
+    } else {
+      groups.push(current);
+    }
+  }
+  return groups.map(mergeLines);
+}
+
+function mergeLines(lines) {
+  if (lines.length === 1) return lines[0];
+  // 空の話者は「不明」であって別人ではない。名前の付いた話者が2人以上いるときだけ、
+  // 行の頭に話者名を残して誰の発言か分かるようにする。
+  const named = [...new Set(lines.map((l) => l.speaker ?? '').filter(Boolean))];
+  const mixed = named.length > 1;
+  const text = lines
+    .map((l) => (mixed && l.speaker ? `${l.speaker}: ${l.text}` : l.text).trim())
+    .join(' ');
+  const jaParts = lines.map((l) => (l.ja ?? '').trim()).filter(Boolean);
+  return {
+    start: lines[0].start,
+    end: lines.at(-1).end,
+    speaker: mixed ? '' : (named[0] ?? ''),
+    text,
+    ...(jaParts.length ? { ja: jaParts.join('') } : {}),
+  };
 }
 
 /* ---------- 字幕の表示 ---------- */
