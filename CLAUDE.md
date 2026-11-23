@@ -220,6 +220,23 @@ web/app.js videoPanel ──POST (text/plain)──▶ GAS doPost ──▶ Gemi
 - 再生は `web/youtube.js` (IFrame Player API) に閉じる。区間の終わりを知らせる
   イベントが無いので、再生中だけ 150ms 間隔で時刻を見張ってループさせている。
 
+### 動画アプリ (Android 向け PWA)
+
+`video.html` は動画タブだけのアプリ。`<body data-app="video">` を見て `web/app.js` が
+`bootVideoOnly()` に分岐し、日次セットを読まずに `videoPanel()` だけを出す。
+コードは index.html と共有なので、動画タブの変更はそのままアプリにも入る。
+
+- `manifest.webmanifest` / `sw.js` / `icons/` は**リポジトリ直下に置く**。Service Worker の
+  スコープは自分のディレクトリ以下なので、`web/` に置くと video.html を制御できず、
+  Chrome がインストールを出さない。`test/pwa.test.mjs` が部品の揃いを見張っている。
+- `sw.js` は**ネットワーク優先** (`cache: 'no-cache'` で再検証) で、キャッシュは圏外用。
+  Pages の10分キャッシュで「古い画面のまま」になるのを防ぐのが主目的。キャッシュ優先に
+  変えると、更新が端末に届かなくなるので変えないこと。別オリジン (YouTube・GAS・
+  GitHub API) と GET 以外には触らない。
+- アイコンは `icons/icon.svg` が原本。変えたら `node scripts/build-icons.cjs` で PNG を作り直す
+  (Playwright の Chromium を使う。maskable は安全領域 80% に縮めて背景を全面に敷く)。
+- 起動時は前回見ていた動画 (`loadLastVideoId`) を開く。
+
 ## 教材を書くときの基準
 
 `prompts/generate.md` の「品質ルール」が唯一の基準。
