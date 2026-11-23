@@ -4,8 +4,10 @@ import {
   buildGasRequest,
   buildVideoPrompt,
   checkRange,
+  endsSentence,
   formatTime,
   GasError,
+  groupTranscript,
   parseGasResponse,
   parseTime,
   parseYouTubeUrl,
@@ -186,4 +188,108 @@ test('parseGasResponse は成否と再試行の可否を伝える', () => {
     () => parseGasResponse({ ok: false, error: 'x', retriable: true }),
     (err) => err.retriable === true,
   );
+});
+
+const L = (start, end, text, extra = {}) => ({ start, end, speaker: '', text, ...extra });
+
+test('endsSentence は . ? ! と閉じ引用符を文末とし、言いさしは文末としない', () => {
+  assert.equal(endsSentence('It works.'), true);
+  assert.equal(endsSentence('Really?'), true);
+  assert.equal(endsSentence('He said "stop."'), true);
+  assert.equal(endsSentence('and then'), false);
+  assert.equal(endsSentence('So...'), false);
+  assert.equal(endsSentence('Well…'), false);
+});
+
+test('groupTranscript は "Hi." だけの行を次の文とつなぐ', () => {
+  const groups = groupTranscript([
+    L(10, 10.6, 'Hi.', { ja: 'こんにちは。' }),
+    L(10.7, 15, "Today I'm going to show you how we built the new battery.", {
+      ja: '今日は新しいバッテリーの作り方をお見せします。',
+    }),
+  ]);
+  assert.equal(groups.length, 1);
+  assert.deepEqual(groups[0], {
+    start: 10,
+    end: 15,
+    speaker: '',
+    text: "Hi. Today I'm going to show you how we built the new battery.",
+    ja: 'こんにちは。今日は新しいバッテリーの作り方をお見せします。',
+  });
+});
+
+test('groupTranscript は文の途中では切らず、文末まで待つ', () => {
+  const groups = groupTranscript([
+    L(0, 4, 'We spent three long years testing every single cell'),
+    L(4, 6, 'in the lab.'),
+    L(6, 12, 'Then we finally shipped it to customers around the world.'),
+  ]);
+  assert.deepEqual(
+    groups.map((g) => g.text),
+    [
+      'We spent three long years testing every single cell in the lab.',
+      'Then we finally shipped it to customers around the world.',
+    ],
+  );
+  for (const g of groups) assert.ok(endsSentence(g.text));
+});
+
+test('groupTranscript は十分な長さの文はそのまま1行にする', () => {
+  const lines = [
+    L(0, 6, 'This first sentence is already long enough to stand on its own.'),
+    L(6, 12, 'And so is this second one, which also has plenty of words.'),
+  ];
+  assert.deepEqual(groupTranscript(lines), lines);
+});
+
+test('groupTranscript は文末が来なくても maxSeconds で切る', () => {
+  const lines = Array.from({ length: 8 }, (_, i) => L(i * 5, i * 5 + 5, 'and then we kept going'));
+  const groups = groupTranscript(lines, { maxSeconds: 20 });
+  assert.equal(groups.length, 2);
+  assert.equal(groups[0].end - groups[0].start, 20);
+});
+
+test('groupTranscript は最後の短い端切れを1つ前の行に足す', () => {
+  const groups = groupTranscript([
+    L(0, 6, 'This first sentence is already long enough to stand on its own.'),
+    L(6, 7, 'Okay.'),
+  ]);
+  assert.equal(groups.length, 1);
+  assert.match(groups[0].text, /own\. Okay\.$/);
+});
+
+test('groupTranscript は端切れを足すと長すぎるなら別の行に残す', () => {
+  const groups = groupTranscript(
+    [L(0, 18, 'This first sentence is already long enough to stand on its own.'), L(18, 22, 'Okay.')],
+    { maxSeconds: 20 },
+  );
+  assert.deepEqual(
+    groups.map((g) => g.text),
+    ['This first sentence is already long enough to stand on its own.', 'Okay.'],
+  );
+});
+
+test('groupTranscript は空の話者を別人として扱わない', () => {
+  const [g] = groupTranscript([
+    L(0, 1, 'Hi.', { speaker: 'Host' }),
+    L(1, 8, "Today we're unveiling something truly remarkable for everyone."),
+  ]);
+  assert.equal(g.speaker, 'Host');
+  assert.equal(g.text, "Hi. Today we're unveiling something truly remarkable for everyone.");
+});
+
+test('groupTranscript は話者が替わるとき話者名を本文に残す', () => {
+  const [g] = groupTranscript([
+    L(0, 1, 'Hi.', { speaker: 'A' }),
+    L(1, 2, 'Hello.', { speaker: 'B' }),
+    L(2, 8, 'Shall we start the meeting with the quarterly numbers?', { speaker: 'A' }),
+  ]);
+  assert.equal(g.speaker, '');
+  assert.equal(g.text, 'A: Hi. B: Hello. A: Shall we start the meeting with the quarterly numbers?');
+});
+
+test('buildVideoPrompt は短い挨拶を単独の行にしないよう頼む', () => {
+  const prompt = buildVideoPrompt({ start: 0, end: 60 });
+  assert.match(prompt, /文末 \(ピリオド・\?・!\) で終わる/);
+  assert.match(prompt, /"Hi\."/);
 });
