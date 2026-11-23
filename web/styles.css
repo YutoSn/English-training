@@ -262,18 +262,38 @@ ol.transcript li {
 }
 ol.transcript .btn.small { min-height: 32px; padding: 0.2rem 0.5rem; font-variant-numeric: tabular-nums; }
 
-input.blank {
-  background: var(--bg);
-  border: none;
-  border-bottom: 2px solid var(--accent);
-  padding: 0 0.2rem;
-  margin: 0 0.15rem;
-  max-width: 100%;
-  font-size: 1rem; /* 16px 未満だと iOS が入力時にズームする */
-}
-input.blank.correct { border-bottom-color: var(--ok); color: var(--ok); }
-input.blank.wrong { border-bottom-color: var(--ng); color: var(--ng); }
+/* 字幕の表示モード。行の ▶ は字幕なしでも残す (行ごとの聞き直しに使う)。 */
+.line-ja { color: var(--muted); font-size: 0.85rem; margin-top: 0.15rem; }
+ol.transcript.subs-none .line { display: none; }
+ol.transcript.subs-en .line-ja { display: none; }
+ol.transcript.subs-none { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+ol.transcript.subs-none li { display: block; border: 0; padding: 0; }
 
-/* 日本語訳は「日本語訳を表示」を押したときだけ出す (先に見ると聞き取りの練習にならない)。 */
-.line-ja { display: none; color: var(--muted); font-size: 0.85rem; margin-top: 0.15rem; }
-ol.transcript.show-ja .line-ja { display: block; }
+.segmented { gap: 0; }
+.segmented .btn { border-radius: 0; margin-left: -1px; }
+.segmented .btn:first-child { border-radius: 8px 0 0 8px; margin-left: 0; }
+.segmented .btn:last-child { border-radius: 0 8px 8px 0; }
+.segmented .btn[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; position: relative; }
+.segmented .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+ul.video-library { list-style: none; padding: 0; margin: 0; }
+ul.video-library li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  border-top: 1px solid var(--border);
+  padding: 0.4rem 0;
+}
+ul.video-library li.current .link > span:first-child { color: var(--accent); font-weight: 700; }
+button.link {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  background: none;
+  border: 0;
+  padding: 0.2rem 0;
+  text-align: left;
+  cursor: pointer;
+}

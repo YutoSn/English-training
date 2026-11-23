@@ -3,20 +3,17 @@ import assert from 'node:assert/strict';
 import {
   buildGasRequest,
   buildVideoPrompt,
-  checkBlank,
   checkRange,
-  clozeTokens,
   formatTime,
   GasError,
   parseGasResponse,
   parseTime,
   parseYouTubeUrl,
-  scoreBlanks,
+  resolveSubtitleMode,
   validateVideoSet,
   videoConfig,
   videoSchema,
 } from '../web/video.js';
-import { levelProfile } from '../web/level.js';
 import { readJson } from '../scripts/lib/paths.mjs';
 
 const ID = 'dQw4w9WgXcQ';
@@ -71,31 +68,29 @@ test('checkRange は順序・長さを確かめる', () => {
   assert.match(checkRange(125, 80), /後/);
   assert.match(checkRange(80, 85), /10秒/);
   assert.match(checkRange(0, 400, 300), /5:00/);
+  // 作成済みの字幕の中で狭めるときは下限を下げられる。
+  assert.equal(checkRange(84, 87, 300, 1), null);
+  assert.match(checkRange(84, 84.5, 300, 1), /1秒/);
 });
 
 test('videoConfig は config.video で既定値を上書きする', () => {
-  assert.equal(videoConfig({}).blanks, 8);
-  assert.equal(videoConfig({ video: { blanks: 5 } }).blanks, 5);
+  assert.equal(videoConfig({}).attempts, 2);
+  assert.equal(videoConfig({ video: { attempts: 3 } }).attempts, 3);
   assert.equal(videoConfig(readJson('data/config.json')).maxSeconds <= 600, true);
 });
 
-test('buildVideoPrompt は区間・レベル・前回のエラーを埋め込む', () => {
+test('buildVideoPrompt は区間・日本語訳の指示・前回のエラーを埋め込む', () => {
   const prompt = buildVideoPrompt({
     start: 80,
     end: 125,
-    level: levelProfile(820),
-    blanks: 8,
-    questions: 3,
-    feedback: ['blanks[0].word "x" が transcript[0].text に含まれていません'],
+    feedback: ['transcript[0].ja (日本語訳) が空です'],
   });
   assert.match(prompt, /1:20〜2:05 \(80秒〜125秒\)/);
-  assert.match(prompt, /TOEIC 820/);
-  assert.match(prompt, /8個/);
-  assert.match(prompt, /3問/);
   assert.match(prompt, /ja はその行の自然な日本語訳/);
-  assert.match(prompt, /前回の出力の問題点[\s\S]*blanks\[0\]/);
-  const plain = { start: 0, end: 30, level: levelProfile(600), blanks: 1, questions: 1 };
-  assert.doesNotMatch(buildVideoPrompt(plain), /前回/);
+  assert.match(prompt, /前回の出力の問題点[\s\S]*transcript\[0\]\.ja/);
+  assert.doesNotMatch(buildVideoPrompt({ start: 0, end: 30 }), /前回/);
+  // 穴埋め・クイズはやめたので、もう頼まない。
+  assert.doesNotMatch(prompt, /blanks|quiz/);
 });
 
 test('videoSchema の required は properties と一致する', () => {
@@ -107,6 +102,7 @@ test('videoSchema の required は properties と一致する', () => {
     if (node.type === 'ARRAY') check(node.items, `${path}[]`);
   };
   check(videoSchema, 'root');
+  assert.deepEqual(Object.keys(videoSchema.properties), ['title', 'transcript']);
 });
 
 const good = () => ({
@@ -127,23 +123,10 @@ const good = () => ({
       ja: 'バッテリーを完成させるのに3年かかりました。',
     },
   ],
-  blanks: [
-    { line: 0, word: 'unveiling', hint: '公開する' },
-    { line: 1, word: 'battery', hint: '電池' },
-  ],
-  quiz: [
-    {
-      id: 'q1',
-      prompt: 'How long did the development take?',
-      choices: ['Three years', 'Three months', 'One year', 'Ten years'],
-      answer: 0,
-      explanation: '"It took us three years" とある。',
-    },
-  ],
 });
-const opts = { start: 80, end: 125, blanks: 2, questions: 1 };
+const opts = { start: 80, end: 125 };
 
-test('validateVideoSet は正しい教材を通す', () => {
+test('validateVideoSet は正しい字幕を通す', () => {
   assert.deepEqual(validateVideoSet(good(), opts), []);
 });
 
@@ -154,63 +137,27 @@ test('validateVideoSet は区間外の時刻を「先頭から数える」指示
   assert.ok(errors.some((e) => /区間.*外.*先頭から/.test(e)), errors.join('\n'));
 });
 
-test('validateVideoSet は行に無い穴・1行2穴・複数語を弾く', () => {
-  const set = good();
-  set.blanks = [
-    { line: 0, word: 'banana', hint: 'x' },
-    { line: 0, word: 'remarkable', hint: 'x' },
-    { line: 1, word: 'the battery', hint: 'x' },
-    { line: 7, word: 'x', hint: 'x' },
-  ];
-  const errors = validateVideoSet(set, opts).join('\n');
-  assert.match(errors, /"banana" が transcript\[0\]/);
-  assert.match(errors, /穴が2つ/);
-  assert.match(errors, /1語/);
-  assert.match(errors, /範囲外/);
-});
-
 test('validateVideoSet は日本語訳の抜けを弾く', () => {
   const set = good();
   delete set.transcript[1].ja;
   assert.match(validateVideoSet(set, opts).join('\n'), /transcript\[1\]\.ja/);
 });
 
-test('validateVideoSet は語の一部への一致を認めない', () => {
+test('validateVideoSet は空の字幕・順序の乱れを弾く', () => {
+  assert.match(validateVideoSet({ title: 'x', transcript: [] }, opts).join('\n'), /空/);
   const set = good();
-  set.blanks[1] = { line: 1, word: 'bat', hint: 'x' };
-  assert.match(validateVideoSet(set, opts).join('\n'), /"bat"/);
+  set.transcript.reverse();
+  assert.match(validateVideoSet(set, opts).join('\n'), /時系列/);
 });
 
-test('validateVideoSet はクイズの数・選択肢・answer を確かめる', () => {
-  const set = good();
-  set.quiz.push({ ...set.quiz[0], choices: ['a', 'a', 'b', 'c'], answer: 4 });
-  const errors = validateVideoSet(set, opts).join('\n');
-  assert.match(errors, /1 問必要/);
-  assert.match(errors, /重複/);
-  assert.match(errors, /同じ選択肢/);
-  assert.match(errors, /0〜3/);
-});
-
-test('clozeTokens は穴の前後の文を残す', () => {
-  const set = good();
-  assert.deepEqual(clozeTokens(set.transcript[0].text, set.blanks, 0), [
-    { type: 'text', value: "Today we're " },
-    { type: 'blank', index: 0, answer: 'unveiling' },
-    { type: 'text', value: ' something remarkable.' },
-  ]);
-  assert.deepEqual(clozeTokens('No blanks here.', set.blanks, 5), [
-    { type: 'text', value: 'No blanks here.' },
-  ]);
-});
-
-test('checkBlank / scoreBlanks は大文字小文字と句読点を無視する', () => {
-  assert.equal(checkBlank('Battery', ' battery. '), true);
-  assert.equal(checkBlank("we're", 'were'), false);
-  assert.equal(checkBlank('battery', ''), false);
-  assert.deepEqual(scoreBlanks(good().blanks, { 0: 'Unveiling', 1: 'batery' }), {
-    correct: 1,
-    total: 2,
-  });
+test('resolveSubtitleMode は日本語訳の無い動画で ja を英文のみに落とす', () => {
+  const withJa = good().transcript;
+  const withoutJa = withJa.map(({ ja, ...rest }) => rest);
+  assert.equal(resolveSubtitleMode('ja', withJa), 'ja');
+  assert.equal(resolveSubtitleMode('ja', withoutJa), 'en');
+  assert.equal(resolveSubtitleMode('none', withoutJa), 'none');
+  assert.equal(resolveSubtitleMode('bogus', withJa), 'en');
+  assert.equal(resolveSubtitleMode(undefined, withJa), 'en');
 });
 
 test('buildGasRequest は正規化した watch URL と整数の区間を送る', () => {

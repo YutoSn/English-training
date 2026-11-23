@@ -49,10 +49,8 @@
   "video": {
     "model": "gemini-flash-latest",
     "maxSeconds": 300,
-    "blanks": 8,
-    "questions": 3,
     "attempts": 2,
-    "note": "動画タブ (YouTube) の生成設定。生成は GAS ウェブアプリ経由 (gas/README.md)。maxSeconds を GAS の上限 600 より大きくしないこと。"
+    "note": "動画タブ (YouTube) の字幕生成の設定。生成は GAS ウェブアプリ経由 (gas/README.md)。maxSeconds を GAS の上限 600 より大きくしないこと。"
   },
   "repo": "YutoSn/English-training"
 }

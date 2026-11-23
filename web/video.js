@@ -7,14 +7,10 @@
  * responseSchema と検証はすべてここに置く。GAS の再デプロイは手作業なので、
  * 教材の作り方を変えるたびに GAS を触らずに済むようにするため。
  */
-import { normalize } from './diff.js';
-
 export const VIDEO_DEFAULTS = {
   model: 'gemini-flash-latest',
   // 長い区間は Gemini の処理が GAS の実行時間内に収まらなくなる。
   maxSeconds: 300,
-  blanks: 8,
-  questions: 3,
   attempts: 2,
 };
 
@@ -87,14 +83,18 @@ export function watchUrl(id) {
   return `https://www.youtube.com/watch?v=${id}`;
 }
 
-/** 区間の入力チェック。問題があれば日本語のメッセージ、無ければ null。 */
-export function checkRange(start, end, maxSeconds = VIDEO_DEFAULTS.maxSeconds) {
+/**
+ * 区間の入力チェック。問題があれば日本語のメッセージ、無ければ null。
+ * minSeconds は字幕を作るときの下限。作成済みの字幕の中で再生区間を狭めるだけなら
+ * 1文だけのくり返しもしたいので、呼び出し側が小さくする。
+ */
+export function checkRange(start, end, maxSeconds = VIDEO_DEFAULTS.maxSeconds, minSeconds = 10) {
   if (start === null || end === null || Number.isNaN(start) || Number.isNaN(end)) {
     return '開始と終了の時刻を 1:20 のような形で入れてください';
   }
   if (start < 0) return '開始時刻が負になっています';
   if (end <= start) return '終了は開始より後にしてください';
-  if (end - start < 10) return '区間は10秒以上にしてください';
+  if (end - start < minSeconds) return `区間は${minSeconds}秒以上にしてください`;
   if (end - start > maxSeconds) return `区間は${formatTime(maxSeconds)}以内にしてください`;
   return null;
 }
@@ -105,46 +105,24 @@ export function checkRange(start, end, maxSeconds = VIDEO_DEFAULTS.maxSeconds) {
  * @param {object} o
  * @param {number} o.start  動画内の秒
  * @param {number} o.end
- * @param {object} o.level  levelProfile() の戻り値
- * @param {number} o.blanks
- * @param {number} o.questions
  * @param {string[]} [o.feedback]  前回の検証エラー (再生成時に添える)
  */
-export function buildVideoPrompt({ start, end, level, blanks, questions, feedback = [] }) {
+export function buildVideoPrompt({ start, end, feedback = [] }) {
   const range = `${formatTime(start)}〜${formatTime(end)} (${start}秒〜${end}秒)`;
   const lines = [
-    'あなたは日本人学習者向けの英語教材を作るプロの教材作成者です。',
-    `添付した YouTube 動画の **${range} の区間だけ** を素材に、聞き取り教材を JSON で作ってください。`,
-    '区間の外で話されている内容は使わないでください。',
-    '',
-    '## 学習者のレベル',
-    `- TOEIC ${level.toeic} 相当 / CEFR ${level.cefr}`,
-    `- 語彙の目安: ${level.vocabulary}`,
+    'あなたは日本人英語学習者のための字幕作成者です。',
+    `添付した YouTube 動画の **${range} の区間だけ** の英語字幕と日本語訳を JSON で作ってください。`,
+    '区間の外で話されている内容は含めないでください。',
     '',
     '## transcript',
     '- 区間内で話されている英語を、聞こえたとおりに一字一句書き起こす。要約・言い換えはしない。',
     '- 1要素は1文か、ひと息で話される句 (目安3〜12秒)。',
-    `- start / end は**動画の先頭からの秒数** (区間の先頭からではない)。${start}〜${end} の範囲に収め、時系列順に並べる。`,
+    `- start / end は**動画の先頭からの秒数** (区間の先頭からではない)。` +
+      `${start}〜${end} の範囲に収め、時系列順に並べる。`,
     '- 話者が複数いて区別できるときは speaker に名前か "A" "B" を入れる。分からなければ空文字。',
     '- BGM だけ・無音の部分は含めない。',
     '- ja はその行の自然な日本語訳。直訳ではなく、話の流れが分かる訳にする。',
     '  前後の行に意味がまたがるときも、その行に対応する部分だけを訳す。',
-    '',
-    '## blanks (字幕の穴埋め)',
-    `- ${blanks}個。transcript の語から、学習者のレベルで聞き取りにくい・覚える価値がある語を選ぶ。`,
-    '- 冠詞・代名詞など機能語だけの穴は作らない。固有名詞も避ける。',
-    '- line は transcript の添字 (0始まり)。word はその行の text に**そのまま含まれる1語**',
-    '  (大文字小文字も含めて一致させ、句読点は含めない)。1行に穴は1つまで。',
-    '- hint は日本語で、意味か聞き取りのコツ (連結・脱落など) を短く書く。答えの語そのものは書かない。',
-    '',
-    '## quiz (内容理解クイズ)',
-    `- ${questions}問。区間の内容についての英語の設問と、英語の4択。`,
-    '- 正解は本文の語句をそのまま使わず言い換える。',
-    '- 不正解の選択肢には「部分的に正しい」「言い換えの罠 (本文の語を借りて意味をずらす)」「本文にない情報」を混ぜる。',
-    '  3つとも動画と無関係な話で埋めない — 聞かずに消去法で解けてしまう。最低1つは動画で話された語句を含める。',
-    '- answer は正解の添字 (0〜3)。問題ごとに散らす。',
-    '- explanation は日本語。根拠となる発話を英語で引用する。',
-    '- id は q1, q2, ... の連番。',
     '',
     '## title',
     '- この区間の内容を表す日本語の短い見出し (30字以内)。',
@@ -182,55 +160,18 @@ export const videoSchema = {
         propertyOrdering: ['start', 'end', 'speaker', 'text', 'ja'],
       },
     },
-    blanks: {
-      type: 'ARRAY',
-      items: {
-        type: 'OBJECT',
-        properties: {
-          line: { type: 'INTEGER', description: 'transcript の添字 (0始まり)' },
-          word: str('その行の text にそのまま含まれる1語'),
-          hint: str('日本語のヒント'),
-        },
-        required: ['line', 'word', 'hint'],
-        propertyOrdering: ['line', 'word', 'hint'],
-      },
-    },
-    quiz: {
-      type: 'ARRAY',
-      items: {
-        type: 'OBJECT',
-        properties: {
-          id: str('q1 のような連番'),
-          prompt: str('英語の設問'),
-          choices: { type: 'ARRAY', items: { type: 'STRING' }, minItems: 4, maxItems: 4 },
-          answer: { type: 'INTEGER', description: '正解の添字 0〜3' },
-          explanation: str('日本語の解説'),
-        },
-        required: ['id', 'prompt', 'choices', 'answer', 'explanation'],
-        propertyOrdering: ['id', 'prompt', 'choices', 'answer', 'explanation'],
-      },
-    },
   },
-  required: ['title', 'transcript', 'blanks', 'quiz'],
-  propertyOrdering: ['title', 'transcript', 'blanks', 'quiz'],
+  required: ['title', 'transcript'],
+  propertyOrdering: ['title', 'transcript'],
 };
 
 /* ---------- 検証 ---------- */
-
-const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-/** 行の中で `word` が単語として現れる位置。無ければ -1。 */
-export function findWord(text, word) {
-  if (!word) return -1;
-  const re = new RegExp(`(?<![A-Za-z0-9'’])${escapeRe(word)}(?![A-Za-z0-9'’])`);
-  return text.search(re);
-}
 
 /**
  * 生成結果を検証する。エラーの文言はそのまま再生成プロンプトに添えるので、
  * モデルが直し方を読み取れる書き方にする。
  */
-export function validateVideoSet(set, { start, end, blanks, questions }) {
+export function validateVideoSet(set, { start, end }) {
   const errors = [];
   if (!set || typeof set !== 'object') return ['JSON オブジェクトではありません'];
   if (typeof set.title !== 'string' || !set.title.trim()) errors.push('title が空です');
@@ -241,12 +182,15 @@ export function validateVideoSet(set, { start, end, blanks, questions }) {
   const slack = 3;
   lines.forEach((l, i) => {
     if (typeof l?.text !== 'string' || !l.text.trim()) errors.push(`transcript[${i}].text が空です`);
-    if (typeof l?.ja !== 'string' || !l.ja.trim()) errors.push(`transcript[${i}].ja (日本語訳) が空です`);
+    if (typeof l?.ja !== 'string' || !l.ja.trim()) {
+      errors.push(`transcript[${i}].ja (日本語訳) が空です`);
+    }
     if (!Number.isFinite(l?.start) || !Number.isFinite(l?.end) || l.end < l.start) {
       errors.push(`transcript[${i}] の start/end が不正です`);
     } else if (l.start < start - slack || l.end > end + slack) {
       errors.push(
-        `transcript[${i}] (${l.start}〜${l.end}秒) が指定区間 ${start}〜${end}秒の外です。秒数は動画の先頭から数えてください`,
+        `transcript[${i}] (${l.start}〜${l.end}秒) が指定区間 ${start}〜${end}秒の外です。` +
+          '秒数は動画の先頭から数えてください',
       );
     }
     if (i > 0 && Number.isFinite(l?.start) && l.start < lines[i - 1].start) {
@@ -254,84 +198,26 @@ export function validateVideoSet(set, { start, end, blanks, questions }) {
     }
   });
 
-  const blankList = Array.isArray(set.blanks) ? set.blanks : [];
-  if (blankList.length < Math.min(blanks, lines.length)) {
-    errors.push(`blanks が ${blankList.length} 個しかありません (${blanks} 個必要)`);
-  }
-  const usedLines = new Set();
-  blankList.forEach((b, i) => {
-    const line = lines[b?.line];
-    if (!Number.isInteger(b?.line) || !line) {
-      return errors.push(`blanks[${i}].line=${b?.line} は transcript の範囲外です`);
-    }
-    if (usedLines.has(b.line)) errors.push(`blanks[${i}]: transcript[${b.line}] に穴が2つあります`);
-    usedLines.add(b.line);
-    if (typeof b.word !== 'string' || /\s/.test(b.word.trim()) || !b.word.trim()) {
-      errors.push(`blanks[${i}].word は1語にしてください`);
-    } else if (findWord(line.text, b.word) < 0) {
-      errors.push(`blanks[${i}].word "${b.word}" が transcript[${b.line}].text に含まれていません`);
-    }
-    if (typeof b.hint !== 'string' || !b.hint.trim()) errors.push(`blanks[${i}].hint が空です`);
-  });
-
-  const quiz = Array.isArray(set.quiz) ? set.quiz : [];
-  if (quiz.length !== questions) errors.push(`quiz は ${questions} 問必要です (${quiz.length} 問)`);
-  const ids = new Set();
-  quiz.forEach((q, i) => {
-    if (ids.has(q?.id)) errors.push(`quiz[${i}].id "${q?.id}" が重複しています`);
-    ids.add(q?.id);
-    if (!Array.isArray(q?.choices) || q.choices.length !== 4) {
-      errors.push(`quiz[${i}].choices は4つ必要です`);
-    } else if (new Set(q.choices.map((c) => String(c).trim().toLowerCase())).size !== 4) {
-      errors.push(`quiz[${i}].choices に同じ選択肢があります`);
-    }
-    if (!Number.isInteger(q?.answer) || q.answer < 0 || q.answer > 3) {
-      errors.push(`quiz[${i}].answer は 0〜3 の整数にしてください`);
-    }
-    if (typeof q?.prompt !== 'string' || !q.prompt.trim()) errors.push(`quiz[${i}].prompt が空です`);
-    if (typeof q?.explanation !== 'string' || !q.explanation.trim()) {
-      errors.push(`quiz[${i}].explanation が空です`);
-    }
-  });
-
   return errors;
 }
 
-/* ---------- 穴埋め ---------- */
+/* ---------- 字幕の表示 ---------- */
+
+/** 字幕の表示モード。動画タブの切り替えボタンはこの順に並ぶ。 */
+export const SUBTITLE_MODES = [
+  { id: 'none', label: '字幕なし' },
+  { id: 'en', label: '英文のみ' },
+  { id: 'ja', label: '日本語訳あり' },
+];
 
 /**
- * 行を「地の文」と「穴」に分ける。穴は blank の添字 (= 解答の key) を持つ。
- * @returns {{ type: 'text', value: string } | { type: 'blank', index: number, answer: string }}[]
+ * 保存されていたモードを、その教材で使えるものに丸める。
+ * 日本語訳を作る前に保存した教材には ja が無いので、'ja' は 'en' に落とす。
  */
-export function clozeTokens(text, blankList, lineIndex) {
-  const hits = blankList
-    .map((b, index) => ({ ...b, index }))
-    .filter((b) => b.line === lineIndex)
-    .map((b) => ({ ...b, at: findWord(text, b.word) }))
-    .filter((b) => b.at >= 0)
-    .sort((a, b) => a.at - b.at);
-
-  const tokens = [];
-  let pos = 0;
-  for (const b of hits) {
-    if (b.at < pos) continue;
-    if (b.at > pos) tokens.push({ type: 'text', value: text.slice(pos, b.at) });
-    tokens.push({ type: 'blank', index: b.index, answer: b.word });
-    pos = b.at + b.word.length;
-  }
-  if (pos < text.length) tokens.push({ type: 'text', value: text.slice(pos) });
-  return tokens;
-}
-
-/** 穴の答え合わせ。ディクテーションと同じく大文字小文字・句読点は見ない。 */
-export function checkBlank(expected, typed) {
-  const want = normalize(expected);
-  return want !== '' && want === normalize(String(typed ?? '').trim());
-}
-
-export function scoreBlanks(blankList, typed) {
-  const correct = blankList.filter((b, i) => checkBlank(b.word, typed[i])).length;
-  return { correct, total: blankList.length };
+export function resolveSubtitleMode(mode, transcript = []) {
+  const hasJa = transcript.some((l) => typeof l?.ja === 'string' && l.ja.trim());
+  if (mode === 'ja' && !hasJa) return 'en';
+  return SUBTITLE_MODES.some((m) => m.id === mode) ? mode : 'en';
 }
 
 /* ---------- GAS との受け渡し ---------- */

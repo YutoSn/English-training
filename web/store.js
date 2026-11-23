@@ -192,3 +192,12 @@ export function saveVideoEntry(entry) {
 export function removeVideoEntry(id) {
   writeVideo({ ...readVideo(), library: loadVideoLibrary().filter((e) => e.id !== id) });
 }
+
+/** 字幕の表示モード ('none' | 'en' | 'ja')。動画を変えても引き継ぐ。 */
+export function loadSubtitleMode() {
+  return readVideo().subtitleMode ?? 'en';
+}
+
+export function saveSubtitleMode(mode) {
+  writeVideo({ ...readVideo(), subtitleMode: mode });
+}
