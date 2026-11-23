@@ -1350,14 +1350,16 @@ function videoViewer(entry) {
     );
   }
 
-  const subtitleCard = el(
-    'div',
-    { class: 'card' },
-    el('h2', {}, '字幕'),
-    el('div', { class: 'controls segmented', role: 'group', 'aria-label': '字幕の表示' }, modeButtons),
-    noneNote,
-    transcriptList,
+  // 表示の切り替えは、字幕を読み進めながら押せるよう動画の下 (固定部分) に置く。
+  stage.append(
+    el(
+      'div',
+      { class: 'controls segmented', role: 'group', 'aria-label': '字幕の表示' },
+      modeButtons,
+    ),
   );
+
+  const subtitleCard = el('div', { class: 'card' }, el('h2', {}, '字幕'), noneNote, transcriptList);
 
   refreshRange();
   renderTranscript();
