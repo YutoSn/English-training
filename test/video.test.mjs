@@ -5,7 +5,9 @@ import {
   buildVideoPrompt,
   checkRange,
   applyAnchors,
+  effectiveAnchors,
   endsSentence,
+  fitAnchors,
   formatTime,
   GasError,
   groupTranscript,
@@ -358,4 +360,49 @@ test('setAnchor は同じ行の印を置き換え、順序の食い違う古い�
 
 test('buildVideoPrompt は時刻を音声に合わせるよう頼む', () => {
   assert.match(buildVideoPrompt({ start: 0, end: 60 }), /最初の単語が実際に聞こえ始める時刻/);
+});
+
+test('effectiveAnchors は印1つなら先頭の行から比例させる', () => {
+  assert.deepEqual(effectiveAnchors([{ at: 120, to: 130 }], 80), [
+    { at: 80, to: 80 },
+    { at: 120, to: 130 },
+  ]);
+  // 先頭の行そのものに付けた印は、全体を同じだけずらす (従来どおり)
+  assert.deepEqual(effectiveAnchors([{ at: 80, to: 83 }], 80), [{ at: 80, to: 83 }]);
+  // 2つ以上ならそのまま
+  const two = [
+    { at: 80, to: 81 },
+    { at: 120, to: 130 },
+  ];
+  assert.equal(effectiveAnchors(two, 80), two);
+  // 1か所押すだけで、間の行も比例して直る
+  const lines = [L(80, 85, 'a.'), L(100, 105, 'b.'), L(120, 125, 'c.')];
+  const fixed = applyAnchors(lines, effectiveAnchors([{ at: 120, to: 128 }], 80));
+  assert.deepEqual(
+    fixed.map((l) => l.start),
+    [80, 104, 128],
+  );
+});
+
+test('fitAnchors は最後の文が区間の終わりで終わるよう全体を伸縮させる', () => {
+  // 実際の音声は生成時刻の1.2倍のペース: 最後の行 (生成 120〜127.5) は実際には 137 で終わる
+  const lines = [L(80, 85.5, 'a.'), L(100, 105.5, 'b.'), L(120, 127.5, 'c.')];
+  const anchors = fitAnchors(lines, 137);
+  assert.deepEqual(anchors, [
+    { at: 80, to: 80 },
+    { at: 127.5, to: 137 },
+  ]);
+  assert.deepEqual(
+    applyAnchors(lines, anchors).map((l) => [l.start, l.end]),
+    [
+      [80, 86.6],
+      [104, 110.6],
+      [128, 137],
+    ],
+  );
+});
+
+test('fitAnchors は字幕が空・区間がおかしいときは何もしない', () => {
+  assert.deepEqual(fitAnchors([], 100), []);
+  assert.deepEqual(fitAnchors([L(80, 85, 'a.')], 70), []);
 });
