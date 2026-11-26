@@ -45,9 +45,11 @@ import {
   buildGasRequest,
   buildVideoPrompt,
   checkRange,
+  applyAnchors,
   formatTime,
   GasError,
   groupTranscript,
+  setAnchor,
   parseGasResponse,
   parseTime,
   parseYouTubeUrl,
@@ -1142,8 +1144,24 @@ function videoPanel() {
 
 function videoViewer(entry) {
   const { set } = entry;
-  // 再生区間。字幕を作った範囲の内側なら、作り直さずに狭めたり動かしたりできる。
-  const play = { start: entry.play?.start ?? entry.start, end: entry.play?.end ?? entry.end };
+  // ▶ で再生する単位。短い行は文末までつないでおく (表示時に通すので古いデータにも効く)。
+  const grouped = groupTranscript(set.transcript, videoConfig(state.config).segment);
+  // 利用者が付けたずれ補正の印。時刻は表示のたびに印から計算し直す (元の時刻は残す)。
+  let anchors = entry.anchors ?? [];
+
+  // 字幕が掛かる範囲。普段は字幕を作った区間だが、ずれ補正で字幕が区間の外へ
+  // 動いたら (後ろほど遅れていた場合など) そこまで広げ、最後の行も再生できるようにする。
+  const base = { start: entry.start, end: entry.end };
+  function refreshBase() {
+    const lines = applyAnchors(grouped, anchors);
+    base.start = Math.min(entry.start, lines[0]?.start ?? entry.start);
+    base.end = Math.max(entry.end, lines.at(-1)?.end ?? entry.end);
+  }
+  refreshBase();
+
+  // 再生区間。字幕の範囲の内側なら、作り直さずに狭めたり動かしたりできる。
+  // entry.play が無い = 字幕の範囲全体 (補正で範囲が変われば一緒に動く)。
+  const play = { start: entry.play?.start ?? base.start, end: entry.play?.end ?? base.end };
 
   /* ---- プレーヤー ---- */
   const host = el('div', {});
@@ -1166,30 +1184,34 @@ function videoViewer(entry) {
   const withPlayer = (fn) => () => ready.then(() => video.player && fn(video.player));
 
   /* ---- 再生区間 ---- */
+  const rangeHelp = el('p', { class: 'meta' });
   const rangeLabel = el('p', { class: 'meta' });
   const playStart = timeInput('開始', '再生区間の開始');
   const playEnd = timeInput('終了', '再生区間の終了');
   const rangeStatus = statusLine();
   const resetBtn = el(
     'button',
-    { class: 'btn small', onclick: () => applyPlayRange(entry.start, entry.end) },
+    { class: 'btn small', onclick: () => applyPlayRange(base.start, base.end) },
     '最初の区間に戻す',
   );
 
   function refreshRange() {
     playStart.value = formatTime(play.start);
     playEnd.value = formatTime(play.end);
-    const narrowed = play.start !== entry.start || play.end !== entry.end;
+    const narrowed = play.start !== base.start || play.end !== base.end;
     rangeLabel.textContent =
       `再生区間 ${formatTime(play.start)}〜${formatTime(play.end)}` +
-      (narrowed ? ` (字幕は ${formatTime(entry.start)}〜${formatTime(entry.end)})` : '');
+      (narrowed ? ` (字幕は ${formatTime(base.start)}〜${formatTime(base.end)})` : '');
+    rangeHelp.textContent =
+      `字幕のある ${formatTime(base.start)}〜${formatTime(base.end)} の内側ならすぐ切り替わります。` +
+      'はみ出す区間は字幕を新しく作ります。';
     resetBtn.classList.toggle('hidden', !narrowed);
   }
 
   function applyPlayRange(start, end) {
     play.start = start;
     play.end = end;
-    entry.play = start === entry.start && end === entry.end ? undefined : { start, end };
+    entry.play = start === base.start && end === base.end ? undefined : { start, end };
     saveVideoEntry(entry);
     video.player?.setSegment(start, end);
     refreshRange();
@@ -1204,7 +1226,7 @@ function videoViewer(entry) {
         // 字幕のある範囲の内側なら、再生区間を変えるだけ (API を呼ばない)。
         // 1文だけのくり返しもできるよう、このときは1秒から受け付ける。
         const inner = readRange(playStart, playEnd, 1);
-        if (!inner.error && inner.start >= entry.start && inner.end <= entry.end) {
+        if (!inner.error && inner.start >= base.start && inner.end <= base.end) {
           rangeStatus.set('');
           applyPlayRange(inner.start, inner.end);
           return toast('再生区間を変更しました');
@@ -1239,12 +1261,7 @@ function videoViewer(entry) {
     { class: 'card' },
     el('h2', {}, '再生区間'),
     rangeLabel,
-    el(
-      'p',
-      { class: 'meta' },
-      `字幕のある ${formatTime(entry.start)}〜${formatTime(entry.end)} の内側ならすぐ切り替わります。` +
-        'はみ出す区間は字幕を新しく作ります。',
-    ),
+    rangeHelp,
     el('div', { class: 'controls topic-form' }, playStart, playEnd, changeBtn, resetBtn),
     rangeStatus,
   );
@@ -1286,8 +1303,7 @@ function videoViewer(entry) {
     { class: 'meta' },
     '字幕を隠しています。各行の ▶ でその部分だけ再生できます。',
   );
-  // ▶ で再生する単位。短い行は文末までつないでおく (表示時に通すので古いデータにも効く)。
-  const segments = groupTranscript(set.transcript, videoConfig(state.config).segment);
+  let syncing = false;
   let mode = resolveSubtitleMode(loadSubtitleMode(), set.transcript);
   const hasJa = resolveSubtitleMode('ja', set.transcript) === 'ja';
 
@@ -1313,26 +1329,73 @@ function videoViewer(entry) {
     SUBTITLE_MODES.forEach((m, i) => {
       modeButtons[i].setAttribute('aria-pressed', String(m.id === mode));
     });
-    transcriptList.className = `transcript subs-${mode}`;
+    transcriptList.className = `transcript subs-${mode}${syncing ? ' syncing' : ''}`;
     noneNote.classList.toggle('hidden', mode !== 'none');
   }
 
+  /**
+   * 「この行は今ここから始まった」と印を付ける。押すまでの反応の遅れの分だけ少し戻す。
+   * 印が2つ以上あると、その間の行も比例して直る (makeTimeMap)。
+   */
+  const REACTION_SECONDS = 0.3;
+  function markLine(line) {
+    ready.then(() => {
+      const player = video.player;
+      if (!player) return;
+      if (!player.isPlaying()) return toast('動画を再生し、その行が話し始めたところで押してください');
+      const to = Math.max(0, player.currentTime() - REACTION_SECONDS);
+      anchors = setAnchor(anchors, line.at, to);
+      entry.anchors = anchors;
+      saveVideoEntry(entry);
+      followBase();
+      renderTranscript();
+      refreshSync();
+      toast(`この行を ${formatTime(to)} からに合わせました`);
+    });
+  }
+
+  /** 補正で字幕の範囲が変わったら、全体を再生する設定のときは再生区間も合わせる。 */
+  function followBase() {
+    refreshBase();
+    if (!entry.play) {
+      play.start = base.start;
+      play.end = base.end;
+      video.player?.setSegment(base.start, base.end);
+    }
+    refreshRange();
+  }
+
   function renderTranscript() {
+    const segments = applyAnchors(grouped, anchors);
+    const marked = new Set(anchors.map((a) => a.at));
     // 再生区間に少しでも掛かる行だけを出す。
     const lines = segments.filter((l) => l.end > play.start && l.start < play.end);
     transcriptList.replaceChildren(
       ...lines.map((line) =>
         el(
           'li',
-          {},
+          { class: marked.has(Math.round(line.at * 100) / 100) ? 'anchored' : '' },
           el(
-            'button',
-            {
-              class: 'btn small',
-              'aria-label': `${formatTime(line.start)} から再生`,
-              onclick: withPlayer((p) => p.playLine(line)),
-            },
-            `▶ ${formatTime(line.start)}`,
+            'div',
+            { class: 'row-buttons' },
+            el(
+              'button',
+              {
+                class: 'btn small',
+                'aria-label': `${formatTime(line.start)} から再生`,
+                onclick: withPlayer((p) => p.playLine(line)),
+              },
+              `▶ ${formatTime(line.start)}`,
+            ),
+            el(
+              'button',
+              {
+                class: 'btn small sync-btn',
+                'aria-label': 'この行を今の再生位置に合わせる',
+                onclick: () => markLine(line),
+              },
+              '⏱ ここ',
+            ),
           ),
           el(
             'div',
@@ -1359,10 +1422,55 @@ function videoViewer(entry) {
     ),
   );
 
+  /* ---- ずれ補正 ---- */
+  const syncBtn = el(
+    'button',
+    {
+      class: 'btn small',
+      'aria-pressed': 'false',
+      onclick: () => {
+        syncing = !syncing;
+        refreshMode();
+        refreshSync();
+      },
+    },
+    '⏱ 字幕のずれを直す',
+  );
+  const resetBtn2 = el(
+    'button',
+    {
+      class: 'btn small',
+      onclick: () => {
+        if (!confirm('この動画のずれ補正をすべて取り消しますか？')) return;
+        anchors = [];
+        delete entry.anchors;
+        saveVideoEntry(entry);
+        followBase();
+        renderTranscript();
+        refreshSync();
+      },
+    },
+    '補正を取り消す',
+  );
+  const syncNote = el(
+    'p',
+    { class: 'explanation' },
+    '動画を再生し、行が話し始めたところでその行の「⏱ ここ」を押すと、字幕をそこに合わせます。' +
+      '前半と後半の2か所以上で合わせると、間の行も比例して直ります。',
+  );
+  function refreshSync() {
+    syncBtn.setAttribute('aria-pressed', String(syncing));
+    syncBtn.textContent = syncing ? '✓ 補正を終える' : '⏱ 字幕のずれを直す';
+    syncNote.classList.toggle('hidden', !syncing);
+    resetBtn2.classList.toggle('hidden', anchors.length === 0);
+  }
+
   const subtitleCard = el(
     'div',
     { class: 'card' },
     el('h2', {}, set.title),
+    el('div', { class: 'controls' }, syncBtn, resetBtn2),
+    syncNote,
     noneNote,
     transcriptList,
   );
@@ -1370,6 +1478,7 @@ function videoViewer(entry) {
   refreshRange();
   renderTranscript();
   refreshMode();
+  refreshSync();
   return [stage, subtitleCard, rangeCard];
 }
 

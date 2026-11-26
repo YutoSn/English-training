@@ -4,6 +4,7 @@ import {
   buildGasRequest,
   buildVideoPrompt,
   checkRange,
+  applyAnchors,
   endsSentence,
   formatTime,
   GasError,
@@ -11,7 +12,9 @@ import {
   parseGasResponse,
   parseTime,
   parseYouTubeUrl,
+  makeTimeMap,
   resolveSubtitleMode,
+  setAnchor,
   validateVideoSet,
   videoConfig,
   videoSchema,
@@ -292,4 +295,67 @@ test('buildVideoPrompt は短い挨拶を単独の行にしないよう頼む', 
   const prompt = buildVideoPrompt({ start: 0, end: 60 });
   assert.match(prompt, /文末 \(ピリオド・\?・!\) で終わる/);
   assert.match(prompt, /"Hi\."/);
+});
+
+test('makeTimeMap は印が無ければ時刻を変えない', () => {
+  const f = makeTimeMap([]);
+  assert.equal(f(123.4), 123.4);
+});
+
+test('makeTimeMap は印1つなら全体を同じだけずらす', () => {
+  const f = makeTimeMap([{ at: 100, to: 103 }]);
+  assert.equal(f(90), 93);
+  assert.equal(f(150), 153);
+});
+
+test('makeTimeMap は2つの印の間を直線で直し、外側は端の印と同じだけずらす', () => {
+  // 先頭は合っているが、後ろほど遅れていく (100秒で20秒ずれる) ケース
+  const f = makeTimeMap([
+    { at: 100, to: 100 },
+    { at: 200, to: 220 },
+  ]);
+  assert.equal(f(90), 90);
+  assert.equal(f(150), 160);
+  assert.equal(f(200), 220);
+  assert.equal(f(250), 270);
+});
+
+test('applyAnchors は start/end を直し、元の時刻を at に残す', () => {
+  const lines = [L(100, 105, 'a.'), L(150, 155, 'b.')];
+  const fixed = applyAnchors(lines, [
+    { at: 100, to: 100 },
+    { at: 200, to: 220 },
+  ]);
+  assert.deepEqual(
+    fixed.map(({ at, start, end }) => ({ at, start, end })),
+    [
+      { at: 100, start: 100, end: 106 },
+      { at: 150, start: 160, end: 166 },
+    ],
+  );
+  // 印が無ければ時刻はそのまま
+  assert.equal(applyAnchors(lines)[1].start, 150);
+});
+
+test('setAnchor は同じ行の印を置き換え、順序の食い違う古い印を外す', () => {
+  let anchors = setAnchor([], 100, 101);
+  anchors = setAnchor(anchors, 200, 215);
+  assert.deepEqual(anchors, [
+    { at: 100, to: 101 },
+    { at: 200, to: 215 },
+  ]);
+  // 同じ行を押し直したら置き換え
+  anchors = setAnchor(anchors, 200, 218);
+  assert.deepEqual(anchors.at(-1), { at: 200, to: 218 });
+  assert.equal(anchors.length, 2);
+  // 後ろの行 (200) より遅い時刻を前の行 (150) に付けたら、食い違う 200 の印を外す
+  anchors = setAnchor(anchors, 150, 230);
+  assert.deepEqual(anchors, [
+    { at: 100, to: 101 },
+    { at: 150, to: 230 },
+  ]);
+});
+
+test('buildVideoPrompt は時刻を音声に合わせるよう頼む', () => {
+  assert.match(buildVideoPrompt({ start: 0, end: 60 }), /最初の単語が実際に聞こえ始める時刻/);
 });

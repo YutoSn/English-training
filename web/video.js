@@ -121,6 +121,9 @@ export function buildVideoPrompt({ start, end, feedback = [] }) {
     '- 1要素は、文末 (ピリオド・?・!) で終わる意味のまとまり (目安15〜40語、5〜20秒)。',
     '  "Hi." "Okay." のような短い挨拶・相づちは単独の要素にせず、次の文とつなげる。',
     '  文の途中で要素を切らない。',
+    '- start は**その要素の最初の単語が実際に聞こえ始める時刻**、end は最後の単語を言い終えた時刻。',
+    '  音声を聞いて合わせ、文の長さから見積もったり等間隔に割り振ったりしない。',
+    '  区間の後半ほどずれやすいので、後半も一つずつ音声で確かめる。',
     `- start / end は**動画の先頭からの秒数** (区間の先頭からではない)。` +
       `${start}〜${end} の範囲に収め、時系列順に並べる。`,
     '- 話者が複数いて区別できるときは speaker に名前か "A" "B" を入れる。分からなければ空文字。',
@@ -274,6 +277,59 @@ function mergeLines(lines) {
     text,
     ...(jaParts.length ? { ja: jaParts.join('') } : {}),
   };
+}
+
+/* ---------- 字幕の時刻のずれ補正 ---------- */
+
+/**
+ * Gemini の付ける時刻は、区間の先頭では合っていても後ろへ行くほどずれることがある
+ * (音を聞いて合わせるのではなく、文の量から見積もっているらしい)。そこで利用者が
+ * 「この行は本当はここから」と印 (anchor) を付け、それに沿って時刻を直す。
+ *
+ * anchor は { at: 生成された時刻, to: 実際の時刻 }。
+ * - 印より前の行は、最初の印と同じだけずらす。
+ * - 印と印の間は、両端の印を結ぶ直線で直す (後ろほど大きくなるずれをまとめて直せる)。
+ * - 最後の印より後の行は、最後の印と同じだけずらす。
+ */
+export function makeTimeMap(anchors = []) {
+  const points = anchors
+    .filter((a) => Number.isFinite(a?.at) && Number.isFinite(a?.to))
+    .sort((a, b) => a.at - b.at);
+  if (points.length === 0) return (t) => t;
+  const first = points[0];
+  const last = points.at(-1);
+  return (t) => {
+    if (t <= first.at) return t + (first.to - first.at);
+    for (let i = 1; i < points.length; i++) {
+      const a = points[i - 1];
+      const b = points[i];
+      if (t <= b.at) return a.to + ((t - a.at) / (b.at - a.at)) * (b.to - a.to);
+    }
+    return t + (last.to - last.at);
+  };
+}
+
+const round2 = (n) => Math.round(n * 100) / 100;
+
+/** 行の start / end を補正する。元の時刻は at に残す (印を付けるときの鍵にする)。 */
+export function applyAnchors(lines, anchors = []) {
+  const map = makeTimeMap(anchors);
+  return lines.map((l) => ({
+    ...l,
+    at: l.start,
+    start: round2(Math.max(0, map(l.start))),
+    end: round2(Math.max(0, map(l.end))),
+  }));
+}
+
+/**
+ * 印を足す (同じ行の印は置き換える)。前後の印と順序が食い違う印
+ * (後ろの行なのに前の行より早い時刻) は、押し間違いとみなして古い方を外す。
+ */
+export function setAnchor(anchors = [], at, to) {
+  const rest = anchors.filter((a) => Math.abs(a.at - at) > 0.01);
+  const kept = rest.filter((a) => (a.at < at ? a.to < to : a.to > to));
+  return [...kept, { at: round2(at), to: round2(to) }].sort((a, b) => a.at - b.at);
 }
 
 /* ---------- 字幕の表示 ---------- */

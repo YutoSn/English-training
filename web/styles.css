@@ -274,6 +274,16 @@ ol.transcript.subs-en .line-ja { display: none; }
 ol.transcript.subs-none { display: flex; flex-wrap: wrap; gap: 0.4rem; }
 ol.transcript.subs-none li { display: block; border: 0; padding: 0; }
 
+/* ずれ補正。「⏱ ここ」は補正中だけ出す。印を付けた行は ▶ を色付きにする。 */
+.row-buttons { display: flex; flex-direction: column; gap: 0.3rem; }
+ol.transcript:not(.syncing) .sync-btn { display: none; }
+ol.transcript li.anchored .row-buttons .btn:first-child {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 700;
+}
+.sync-btn { white-space: nowrap; }
+
 .segmented { gap: 0; }
 .segmented .btn { border-radius: 0; margin-left: -1px; }
 .segmented .btn:first-child { border-radius: 8px 0 0 8px; margin-left: 0; }
