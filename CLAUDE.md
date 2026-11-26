@@ -281,6 +281,8 @@ web/app.js videoPanel ──POST (text/plain)──▶ GAS doPost ──▶ Gemi
 - `settings.yml` — `settings` ラベルが付いた Issue を `apply-settings.mjs` に通し、
   変更をコミットして Issue にコメント + クローズする。
 - `pages.yml` — リポジトリ全体をそのまま Pages に配信する (`index.html`・`web/`・`data/` が
-  すべて必要なため、サブディレクトリ配信にはできない)。
+  すべて必要なため、サブディレクトリ配信にはできない)。**upload と deploy は別ジョブ**にしてある。
+  同じジョブで続けると、アップロード直後の deploy-pages が成果物を見つけられず
+  「No artifacts named "github-pages"」で落ちることがあった。
 
 `generate.yml` `grade.yml` `settings.yml` は `GEMINI_API_KEY` シークレットに依存する。

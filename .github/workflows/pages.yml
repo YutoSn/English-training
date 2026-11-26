@@ -14,11 +14,12 @@ concurrency:
   group: pages
   cancel-in-progress: true
 
+# アップロード (upload) と配信 (deploy) を別のジョブに分ける。同じジョブで続けて
+# 実行すると、アップロード直後に deploy-pages が成果物を見つけられず
+# 「No artifacts named "github-pages" were found」で落ちることがあった
+# (GitHub 側の反映待ち)。ジョブを分ければ、その間に反映が済む。
 jobs:
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
+  upload:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -28,5 +29,13 @@ jobs:
       - uses: actions/upload-pages-artifact@v3
         with:
           path: '.'
+
+  deploy:
+    needs: upload
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
       - id: deploy
         uses: actions/deploy-pages@v4
