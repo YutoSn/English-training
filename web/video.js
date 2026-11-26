@@ -323,6 +323,35 @@ export function applyAnchors(lines, anchors = []) {
 }
 
 /**
+ * 実際に使う印。利用者の印が1つだけで、それが先頭の行より後ろなら、先頭の行は
+ * 合っているとみなして「先頭 → その印」で比例させる (ずれは後ろほど大きくなるので、
+ * 全体を同じだけずらすより当たる)。先頭がずれているときは、先頭の行にも印を付ければよい。
+ */
+export function effectiveAnchors(anchors = [], firstStart) {
+  if (anchors.length === 1 && Number.isFinite(firstStart) && anchors[0].at > firstStart + 1) {
+    return [{ at: firstStart, to: firstStart }, anchors[0]];
+  }
+  return anchors;
+}
+
+/**
+ * 字幕全体を区間の終わりにぴったり収める印を作る (自動補正)。字幕は指定区間の中で
+ * 話された内容なので、最後の文は区間の終わりで終わるはず、という前提に立つ。
+ * 先頭の行の時刻はそのまま使う。区間の終わりに無音や音楽が長く続く動画では合わない。
+ */
+export function fitAnchors(lines, rangeEnd) {
+  const first = lines[0];
+  const last = lines.at(-1);
+  if (!first || !Number.isFinite(rangeEnd) || last.end <= first.start || rangeEnd <= first.start) {
+    return [];
+  }
+  return [
+    { at: round2(first.start), to: round2(first.start) },
+    { at: round2(last.end), to: round2(rangeEnd) },
+  ];
+}
+
+/**
  * 印を足す (同じ行の印は置き換える)。前後の印と順序が食い違う印
  * (後ろの行なのに前の行より早い時刻) は、押し間違いとみなして古い方を外す。
  */

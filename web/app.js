@@ -46,6 +46,8 @@ import {
   buildVideoPrompt,
   checkRange,
   applyAnchors,
+  effectiveAnchors,
+  fitAnchors,
   formatTime,
   GasError,
   groupTranscript,
@@ -1148,12 +1150,14 @@ function videoViewer(entry) {
   const grouped = groupTranscript(set.transcript, videoConfig(state.config).segment);
   // 利用者が付けたずれ補正の印。時刻は表示のたびに印から計算し直す (元の時刻は残す)。
   let anchors = entry.anchors ?? [];
+  /** 補正後の行。印が1つだけなら先頭から比例させる (effectiveAnchors)。 */
+  const fixedLines = () => applyAnchors(grouped, effectiveAnchors(anchors, grouped[0]?.start));
 
   // 字幕が掛かる範囲。普段は字幕を作った区間だが、ずれ補正で字幕が区間の外へ
   // 動いたら (後ろほど遅れていた場合など) そこまで広げ、最後の行も再生できるようにする。
   const base = { start: entry.start, end: entry.end };
   function refreshBase() {
-    const lines = applyAnchors(grouped, anchors);
+    const lines = fixedLines();
     base.start = Math.min(entry.start, lines[0]?.start ?? entry.start);
     base.end = Math.max(entry.end, lines.at(-1)?.end ?? entry.end);
   }
@@ -1366,7 +1370,7 @@ function videoViewer(entry) {
   }
 
   function renderTranscript() {
-    const segments = applyAnchors(grouped, anchors);
+    const segments = fixedLines();
     const marked = new Set(anchors.map((a) => a.at));
     // 再生区間に少しでも掛かる行だけを出す。
     const lines = segments.filter((l) => l.end > play.start && l.start < play.end);
@@ -1452,11 +1456,52 @@ function videoViewer(entry) {
     },
     '補正を取り消す',
   );
+  // 探さずに合わせる手段。区間の最初は合っている前提で、後ろほどのずれを直す。
+  const autoFitBtn = el(
+    'button',
+    {
+      class: 'btn small primary',
+      onclick: () => {
+        const fit = fitAnchors(grouped, entry.end);
+        if (!fit.length) return toast('この字幕は自動補正できません');
+        anchors = fit;
+        entry.anchors = anchors;
+        saveVideoEntry(entry);
+        followBase();
+        renderTranscript();
+        refreshSync();
+        toast('字幕を区間の長さに合わせました');
+      },
+    },
+    '⚡ 自動補正',
+  );
+  const tailBtn = el(
+    'button',
+    {
+      class: 'btn small',
+      onclick: withPlayer((p) =>
+        p.playLine({ start: Math.max(base.start, base.end - 15), end: base.end }),
+      ),
+    },
+    '▶ 区間の最後を聞く',
+  );
   const syncNote = el(
-    'p',
+    'div',
     { class: 'explanation' },
-    '動画を再生し、行が話し始めたところでその行の「⏱ ここ」を押すと、字幕をそこに合わせます。' +
-      '前半と後半の2か所以上で合わせると、間の行も比例して直ります。',
+    el(
+      'p',
+      {},
+      '「⚡ 自動補正」は、最後の文が区間の終わりで終わるように字幕全体を伸び縮みさせます' +
+        ' (後ろほどずれる場合はこれだけで直ります)。',
+    ),
+    el(
+      'p',
+      {},
+      'まだずれるときは、再生中に行が話し始めたところでその行の「⏱ ここ」を押します。' +
+        '先頭が合っていれば、後ろの方の行で1回押すだけで全体が比例して直ります。' +
+        '最後の行なら「▶ 区間の最後を聞く」で探さずに合わせられます。',
+    ),
+    el('div', { class: 'controls' }, autoFitBtn, tailBtn),
   );
   function refreshSync() {
     syncBtn.setAttribute('aria-pressed', String(syncing));
