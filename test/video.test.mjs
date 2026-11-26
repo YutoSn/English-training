@@ -4,6 +4,7 @@ import {
   buildGasRequest,
   buildVideoPrompt,
   checkRange,
+  currentLineIndex,
   applyAnchors,
   effectiveAnchors,
   endsSentence,
@@ -15,6 +16,9 @@ import {
   parseTime,
   parseYouTubeUrl,
   makeTimeMap,
+  mergeParts,
+  PART_OVERRUN,
+  splitRange,
   resolveSubtitleMode,
   setAnchor,
   validateVideoSet,
@@ -405,4 +409,69 @@ test('fitAnchors は最後の文が区間の終わりで終わるよう全体を
 test('fitAnchors は字幕が空・区間がおかしいときは何もしない', () => {
   assert.deepEqual(fitAnchors([], 100), []);
   assert.deepEqual(fitAnchors([L(80, 85, 'a.')], 70), []);
+});
+
+test('splitRange は約1分ずつに分け、短い端切れは1つ前に足す', () => {
+  assert.deepEqual(splitRange(80, 260, 60), [
+    [80, 140],
+    [140, 200],
+    [200, 260],
+  ]);
+  // 最後が 20 秒 (半分未満) なら前に足す
+  assert.deepEqual(splitRange(80, 220, 60), [
+    [80, 140],
+    [140, 220],
+  ]);
+  // 1分以内ならそのまま1つ
+  assert.deepEqual(splitRange(0, 50, 60), [[0, 50]]);
+});
+
+test('mergeParts は境目で重なった行を、時刻か文章の一致で1つにする', () => {
+  const a = [
+    L(80, 100, 'We started this project three years ago.'),
+    L(130, 142, 'It took us dozens of failed attempts to get there.'),
+  ];
+  const b = [
+    // 時刻はずれているが、同じ文を次の区間も書いている
+    L(145, 150, 'dozens of failed attempts to get there.'),
+    L(150, 158, 'Today we are finally ready to show you.'),
+  ];
+  assert.deepEqual(
+    mergeParts([a, b]).map((l) => l.text),
+    [
+      'We started this project three years ago.',
+      'It took us dozens of failed attempts to get there.',
+      'Today we are finally ready to show you.',
+    ],
+  );
+});
+
+test('mergeParts は短い文の偶然の一致では捨てない', () => {
+  const merged = mergeParts([[L(0, 10, 'Yes.')], [L(60, 61, 'Yes.'), L(61, 65, 'Right.')]]);
+  assert.equal(merged.length, 3);
+});
+
+test('buildVideoPrompt は分けた区間の境目の扱いを伝える', () => {
+  const middle = buildVideoPrompt({ start: 140, end: 200, part: { index: 1, count: 3 } });
+  assert.match(middle, /2 \/ 3 番目/);
+  assert.match(middle, /途中の文は含めない/);
+  assert.match(middle, new RegExp(`最大${PART_OVERRUN}秒はみ出してよい`));
+  const last = buildVideoPrompt({ start: 200, end: 260, part: { index: 2, count: 3 } });
+  assert.doesNotMatch(last, /はみ出してよい/);
+  assert.doesNotMatch(buildVideoPrompt({ start: 0, end: 50 }), /区間の境目/);
+});
+
+test('validateVideoSet は endSlack の分だけ区間の終わりのはみ出しを許す', () => {
+  const set = { title: 't', transcript: [L(190, 210, 'a.', { ja: 'あ' })] };
+  assert.notDeepEqual(validateVideoSet(set, { start: 140, end: 200 }), []);
+  assert.deepEqual(validateVideoSet(set, { start: 140, end: 200, endSlack: PART_OVERRUN }), []);
+});
+
+test('currentLineIndex は再生位置の行を返し、行の間では直前の行のまま', () => {
+  const lines = [L(80, 85, 'a.'), L(90, 95, 'b.'), L(100, 105, 'c.')];
+  assert.equal(currentLineIndex(lines, 70), -1);
+  assert.equal(currentLineIndex(lines, 80), 0);
+  assert.equal(currentLineIndex(lines, 87), 0);
+  assert.equal(currentLineIndex(lines, 92), 1);
+  assert.equal(currentLineIndex(lines, 200), 2);
 });

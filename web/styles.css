@@ -274,6 +274,17 @@ ol.transcript.subs-en .line-ja { display: none; }
 ol.transcript.subs-none { display: flex; flex-wrap: wrap; gap: 0.4rem; }
 ol.transcript.subs-none li { display: block; border: 0; padding: 0; }
 
+/* 再生中の行。字幕なしのときも ▶ ボタンが光るので、どこを再生中か分かる。 */
+ol.transcript li.current {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-radius: 8px;
+}
+ol.transcript li.current .row-buttons .btn:first-child {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
 /* ずれ補正。「⏱ ここ」は補正中だけ出す。印を付けた行は ▶ を色付きにする。 */
 .row-buttons { display: flex; flex-direction: column; gap: 0.3rem; }
 ol.transcript:not(.syncing) .sync-btn { display: none; }

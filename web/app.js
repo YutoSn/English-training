@@ -24,6 +24,8 @@ import {
   saveSubtitleMode,
   loadLastVideoId,
   saveLastVideoId,
+  loadAutoScroll,
+  saveAutoScroll,
 } from './store.js';
 import {
   TOEIC_MIN,
@@ -46,12 +48,16 @@ import {
   buildVideoPrompt,
   checkRange,
   applyAnchors,
+  currentLineIndex,
   effectiveAnchors,
   fitAnchors,
   formatTime,
   GasError,
   groupTranscript,
+  mergeParts,
+  PART_OVERRUN,
   setAnchor,
+  splitRange,
   parseGasResponse,
   parseTime,
   parseYouTubeUrl,
@@ -889,49 +895,88 @@ function generatePanel() {
 const video = { player: null, entryId: null, busy: false, open: null };
 
 function destroyVideoPlayer() {
+  clearInterval(video.followTimer);
   video.player?.destroy();
   video.player = null;
 }
 
-async function requestVideoSet({ videoId, start, end }, onProgress) {
-  const { gasUrl, token } = loadVideoConnection();
-  if (!gasUrl || !token) throw new Error('先に「接続設定」で GAS の URL と合言葉を保存してください');
+/**
+ * 自分で字幕をスクロールしたら、しばらく自動スクロールを止める (読んでいる途中で
+ * 引き戻されないように)。リスナーは1つだけ付けて、ビューアをまたいで使い回す。
+ */
+const MANUAL_SCROLL_PAUSE_MS = 4000;
+video.manualScrollAt = 0;
+for (const type of ['touchmove', 'wheel']) {
+  window.addEventListener(type, () => (video.manualScrollAt = Date.now()), { passive: true });
+}
 
+/** GAS 経由で Gemini に1回頼む。失敗は GasError (retriable 付き) か Error で返す。 */
+async function callGas(gasUrl, req) {
+  // Content-Type を付けずに文字列で送る = text/plain の単純リクエスト。
+  // GAS はプリフライト (OPTIONS) に答えられないので、これ以外の形だと CORS で落ちる。
+  const res = await fetch(gasUrl, { method: 'POST', body: JSON.stringify(req) });
+  if (!res.ok) throw new Error(`GAS に接続できませんでした (${res.status})`);
+  let body;
+  try {
+    body = await res.json();
+  } catch {
+    throw new Error(
+      'GAS の応答が JSON ではありません。' +
+        'デプロイの「アクセスできるユーザー」が「全員」か確認してください',
+    );
+  }
+  return parseGasResponse(body);
+}
+
+/** 分けた区間1つ分の字幕を作る。検証に落ちたらエラーを添えて作り直す。 */
+async function requestPart({ gasUrl, token, videoId, start, end, part }, onAttempt) {
   const cfg = videoConfig(state.config);
+  const endSlack = part.index < part.count - 1 ? PART_OVERRUN : 3;
   let feedback = [];
 
   for (let attempt = 1; attempt <= cfg.attempts; attempt++) {
-    onProgress(attempt);
-    const prompt = buildVideoPrompt({ start, end, feedback });
+    onAttempt(attempt);
+    const prompt = buildVideoPrompt({ start, end, feedback, part });
     const req = buildGasRequest({ token, videoId, start, end, prompt, model: cfg.model });
-    // Content-Type を付けずに文字列で送る = text/plain の単純リクエスト。
-    // GAS はプリフライト (OPTIONS) に答えられないので、これ以外の形だと CORS で落ちる。
-    const res = await fetch(gasUrl, { method: 'POST', body: JSON.stringify(req) });
-    if (!res.ok) throw new Error(`GAS に接続できませんでした (${res.status})`);
-
-    let body;
-    try {
-      body = await res.json();
-    } catch {
-      throw new Error(
-        'GAS の応答が JSON ではありません。' +
-          'デプロイの「アクセスできるユーザー」が「全員」か確認してください',
-      );
-    }
 
     let set;
     try {
-      set = parseGasResponse(body);
+      set = await callGas(gasUrl, req);
     } catch (err) {
       if (err instanceof GasError && err.retriable && attempt < cfg.attempts) continue;
       throw err;
     }
 
-    const errors = validateVideoSet(set, { start, end });
+    const errors = validateVideoSet(set, { start, end, endSlack });
     if (errors.length === 0) return set;
     feedback = errors.slice(0, 15);
   }
   throw new Error(`字幕が条件を満たしませんでした: ${feedback.slice(0, 3).join(' / ')}`);
+}
+
+/**
+ * 区間を splitRange で分け、順番に作ってつなぐ。Gemini の時刻は後ろほどずれるので、
+ * 短い区間ごとに正しい開始位置から数え直させて、ずれが溜まらないようにする。
+ * 無料枠の回数制限に当たらないよう、並列にはせず1つずつ頼む。
+ */
+async function requestVideoSet({ videoId, start, end }, onProgress) {
+  const { gasUrl, token } = loadVideoConnection();
+  if (!gasUrl || !token) throw new Error('先に「接続設定」で GAS の URL と合言葉を保存してください');
+
+  const ranges = splitRange(start, end, videoConfig(state.config).chunkSeconds);
+  const sets = [];
+  for (const [index, [s, e]] of ranges.entries()) {
+    const part = { index, count: ranges.length };
+    sets.push(
+      await requestPart({ gasUrl, token, videoId, start: s, end: e, part }, (attempt) =>
+        onProgress({ part, attempt }),
+      ),
+    );
+  }
+  return {
+    title: sets[0].title,
+    transcript: mergeParts(sets.map((set) => set.transcript)),
+  };
 }
 
 /**
@@ -942,12 +987,18 @@ async function createVideoEntry({ videoId, start, end }, setStatus) {
   if (video.busy) throw new Error('作成中です。終わるまでお待ちください');
   video.busy = true;
   const began = Date.now();
-  const tick = () =>
-    setStatus(`作成中… (${Math.round((Date.now() - began) / 1000)}秒経過 / 目安30秒〜2分)`);
+  const count = splitRange(start, end, videoConfig(state.config).chunkSeconds).length;
+  let done = 0;
+  const tick = () => {
+    const waited = Math.round((Date.now() - began) / 1000);
+    const progress = count > 1 ? `${done + 1} / ${count} 区間目, ` : '';
+    setStatus(`作成中… (${progress}${waited}秒経過 / 目安 ${count}〜${count * 2}分)`);
+  };
   tick();
   const timer = setInterval(tick, 1000);
   try {
-    const set = await requestVideoSet({ videoId, start, end }, (attempt) => {
+    const set = await requestVideoSet({ videoId, start, end }, ({ part, attempt }) => {
+      done = part.index;
       if (attempt > 1) toast(`条件を満たさなかったので作り直しています (${attempt}回目)`);
     });
     const id = `${videoId}@${start}-${end}`;
@@ -1415,7 +1466,61 @@ function videoViewer(entry) {
         ),
       ),
     );
+    rows = lines.map((line, i) => ({ line, li: transcriptList.children[i] }));
+    currentRow = -1;
   }
+
+  /* ---- 再生中の行のハイライトと自動スクロール ---- */
+  let rows = [];
+  let currentRow = -1;
+  let autoScroll = loadAutoScroll();
+
+  /** 行を、固定された動画 (stage) のすぐ下に来るようにスクロールする。 */
+  function scrollToRow(li) {
+    const below = stage.getBoundingClientRect().bottom;
+    const top = li.getBoundingClientRect().top;
+    if (Math.abs(top - below - 8) < 4) return;
+    window.scrollTo({ top: window.scrollY + top - below - 8, behavior: 'smooth' });
+  }
+
+  function follow() {
+    const player = video.player;
+    if (!player || video.entryId !== entry.id) return;
+    const index = currentLineIndex(
+      rows.map((r) => r.line),
+      player.currentTime(),
+    );
+    if (index === currentRow) return;
+    rows[currentRow]?.li.classList.remove('current');
+    currentRow = index;
+    const row = rows[index];
+    if (!row) return;
+    row.li.classList.add('current');
+    const userScrolling = Date.now() - video.manualScrollAt < MANUAL_SCROLL_PAUSE_MS;
+    if (autoScroll && player.isPlaying() && !userScrolling) scrollToRow(row.li);
+  }
+
+  clearInterval(video.followTimer);
+  video.followTimer = setInterval(follow, 250);
+
+  const autoScrollBtn = el(
+    'button',
+    {
+      class: 'btn small',
+      onclick: () => {
+        autoScroll = !autoScroll;
+        saveAutoScroll(autoScroll);
+        refreshAutoScroll();
+        if (autoScroll && rows[currentRow]) scrollToRow(rows[currentRow].li);
+      },
+    },
+    '',
+  );
+  function refreshAutoScroll() {
+    autoScrollBtn.setAttribute('aria-pressed', String(autoScroll));
+    autoScrollBtn.textContent = autoScroll ? '↕ 自動スクロール: オン' : '↕ 自動スクロール: オフ';
+  }
+  refreshAutoScroll();
 
   // 表示の切り替えは、字幕を読み進めながら押せるよう動画の下 (固定部分) に置く。
   stage.append(
@@ -1514,7 +1619,7 @@ function videoViewer(entry) {
     'div',
     { class: 'card' },
     el('h2', {}, set.title),
-    el('div', { class: 'controls' }, syncBtn, resetBtn2),
+    el('div', { class: 'controls' }, autoScrollBtn, syncBtn, resetBtn2),
     syncNote,
     noneNote,
     transcriptList,

@@ -210,3 +210,12 @@ export function loadLastVideoId() {
 export function saveLastVideoId(id) {
   writeVideo({ ...readVideo(), lastId: id });
 }
+
+/** 再生中の行に合わせて字幕を自動でスクロールするか (既定は する)。 */
+export function loadAutoScroll() {
+  return readVideo().autoScroll ?? true;
+}
+
+export function saveAutoScroll(on) {
+  writeVideo({ ...readVideo(), autoScroll: on });
+}
