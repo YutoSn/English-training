@@ -12,6 +12,9 @@ export const VIDEO_DEFAULTS = {
   // 長い区間は Gemini の処理が GAS の実行時間内に収まらなくなる。
   maxSeconds: 300,
   attempts: 2,
+  // 長い区間はこの長さずつに分けて字幕を作る (splitRange)。Gemini の時刻は後ろほど
+  // ずれていくので、短く区切って区間ごとに数え直させ、ずれが溜まらないようにする。
+  chunkSeconds: 60,
   // 字幕1行 (= ▶ で再生する単位) の大きさ。groupTranscript が短い行をこの大きさまでつなぐ。
   segment: { minWords: 12, minSeconds: 5, maxSeconds: 30 },
 };
@@ -19,6 +22,8 @@ export const VIDEO_DEFAULTS = {
 export function videoConfig(config) {
   return { ...VIDEO_DEFAULTS, ...(config?.video ?? {}) };
 }
+
+import { normalize, tokenize } from './diff.js';
 
 /* ---------- URL と時刻 ---------- */
 
@@ -101,6 +106,50 @@ export function checkRange(start, end, maxSeconds = VIDEO_DEFAULTS.maxSeconds, m
   return null;
 }
 
+/* ---------- 長い区間の分割 ---------- */
+
+/** 分けた区間の終わりで文の途中だったとき、その文を言い切るまで許すはみ出し (秒)。 */
+export const PART_OVERRUN = 15;
+
+/**
+ * [start, end] を chunkSeconds 前後の区間に分ける。最後に短い端切れ (半分未満) が
+ * 残るときは1つ前の区間に足す (短すぎる依頼は文の途中で切れやすく、無駄が多い)。
+ */
+export function splitRange(start, end, chunkSeconds = VIDEO_DEFAULTS.chunkSeconds) {
+  const parts = [];
+  for (let s = start; s < end; s += chunkSeconds) parts.push([s, Math.min(end, s + chunkSeconds)]);
+  if (parts.length > 1 && parts.at(-1)[1] - parts.at(-1)[0] < chunkSeconds / 2) {
+    const [, lastEnd] = parts.pop();
+    parts.at(-1)[1] = lastEnd;
+  }
+  return parts;
+}
+
+const textKey = (text) => tokenize(text).map(normalize).filter(Boolean).join(' ');
+
+/**
+ * 分けて作った字幕をつなぐ。境目の文を、前の区間 (言い切るまで書いてよい) と次の区間の
+ * 両方が書いていることがある。次の区間の先頭の行のうち、前の区間の最後より前に始まる行と、
+ * 前の区間の最後の数行と同じ文 (片方がもう片方を含む) は捨てる。時刻はずれていることが
+ * あるので、文章の一致でも見る。短い文 ("Yes." など) は偶然一致するので文章では比べない。
+ */
+export function mergeParts(parts) {
+  const merged = [];
+  for (const lines of parts) {
+    const lastEnd = merged.at(-1)?.end ?? -Infinity;
+    const tail = merged.slice(-3).map((l) => textKey(l.text));
+    const duplicate = (line) => {
+      if (line.start < lastEnd - 1) return true;
+      const key = textKey(line.text);
+      return key.length >= 15 && tail.some((t) => t.includes(key) || key.includes(t));
+    };
+    let i = 0;
+    while (i < lines.length && duplicate(lines[i])) i++;
+    merged.push(...lines.slice(i));
+  }
+  return merged;
+}
+
 /* ---------- 生成プロンプトと responseSchema ---------- */
 
 /**
@@ -108,8 +157,9 @@ export function checkRange(start, end, maxSeconds = VIDEO_DEFAULTS.maxSeconds, m
  * @param {number} o.start  動画内の秒
  * @param {number} o.end
  * @param {string[]} [o.feedback]  前回の検証エラー (再生成時に添える)
+ * @param {{ index: number, count: number }} [o.part]  長い区間を分けて作るときの何番目か
  */
-export function buildVideoPrompt({ start, end, feedback = [] }) {
+export function buildVideoPrompt({ start, end, feedback = [], part }) {
   const range = `${formatTime(start)}〜${formatTime(end)} (${start}秒〜${end}秒)`;
   const lines = [
     'あなたは日本人英語学習者のための字幕作成者です。',
@@ -118,6 +168,7 @@ export function buildVideoPrompt({ start, end, feedback = [] }) {
     '',
     '## transcript',
     '- 区間内で話されている英語を、聞こえたとおりに一字一句書き起こす。要約・言い換えはしない。',
+    `- **区間の最後 (${formatTime(end)}) まで、すべての発話を漏らさず書き起こす。途中でやめない。**`,
     '- 1要素は、文末 (ピリオド・?・!) で終わる意味のまとまり (目安15〜40語、5〜20秒)。',
     '  "Hi." "Okay." のような短い挨拶・相づちは単独の要素にせず、次の文とつなげる。',
     '  文の途中で要素を切らない。',
@@ -134,6 +185,19 @@ export function buildVideoPrompt({ start, end, feedback = [] }) {
     '## title',
     '- この区間の内容を表す日本語の短い見出し (30字以内)。',
   ];
+
+  if (part && part.count > 1) {
+    lines.push('', '## 区間の境目', `この区間は、長い動画を分けたうちの ${part.index + 1} / ${part.count} 番目です。`);
+    if (part.index > 0) {
+      lines.push('- 区間の始まりの時点ですでに話されている途中の文は含めない (前の区間で書き起こし済み)。');
+    }
+    if (part.index < part.count - 1) {
+      lines.push(
+        `- 区間の終わりで文の途中なら、その文の最後まで書き起こす (end が ${formatTime(end)} を` +
+          `最大${PART_OVERRUN}秒はみ出してよい)。`,
+      );
+    }
+  }
 
   if (feedback.length) {
     lines.push(
@@ -178,7 +242,7 @@ export const videoSchema = {
  * 生成結果を検証する。エラーの文言はそのまま再生成プロンプトに添えるので、
  * モデルが直し方を読み取れる書き方にする。
  */
-export function validateVideoSet(set, { start, end }) {
+export function validateVideoSet(set, { start, end, endSlack = 3 }) {
   const errors = [];
   if (!set || typeof set !== 'object') return ['JSON オブジェクトではありません'];
   if (typeof set.title !== 'string' || !set.title.trim()) errors.push('title が空です');
@@ -194,7 +258,7 @@ export function validateVideoSet(set, { start, end }) {
     }
     if (!Number.isFinite(l?.start) || !Number.isFinite(l?.end) || l.end < l.start) {
       errors.push(`transcript[${i}] の start/end が不正です`);
-    } else if (l.start < start - slack || l.end > end + slack) {
+    } else if (l.start < start - slack || l.end > end + endSlack) {
       errors.push(
         `transcript[${i}] (${l.start}〜${l.end}秒) が指定区間 ${start}〜${end}秒の外です。` +
           '秒数は動画の先頭から数えてください',
@@ -362,6 +426,19 @@ export function setAnchor(anchors = [], at, to) {
 }
 
 /* ---------- 字幕の表示 ---------- */
+
+/**
+ * 再生位置 t に当たる行の添字 (行は時刻順)。行と行の間 (間や音楽) では直前の行のまま、
+ * 最初の行より前なら -1。
+ */
+export function currentLineIndex(lines, t) {
+  let index = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].start <= t + 0.05) index = i;
+    else break;
+  }
+  return index;
+}
 
 /** 字幕の表示モード。動画タブの切り替えボタンはこの順に並ぶ。 */
 export const SUBTITLE_MODES = [
