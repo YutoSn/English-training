@@ -71,13 +71,17 @@ export async function createPlayer(host, { videoId, start, end }) {
     setSegment: (from, to) => {
       segment.start = from;
       segment.end = to;
-      // ループ中なら新しい区間で回り直す。
-      if (range.loop) playRange(from, to, true);
+      // ループ再生中なら新しい区間で回り直す。止まっているときは勝手に再生しない。
+      if (range.loop && player.getPlayerState() === YT.PlayerState.PLAYING) {
+        playRange(from, to, true);
+      }
     },
     playLine: (line, loop = false) => playRange(line.start, line.end + 0.3, loop),
     pause: () => player.pauseVideo(),
     setRate: (rate) => player.setPlaybackRate(rate),
     rates: () => player.getAvailablePlaybackRates?.() ?? [1],
+    currentTime: () => player.getCurrentTime(),
+    isPlaying: () => player.getPlayerState() === YT.PlayerState.PLAYING,
     destroy: () => {
       clearInterval(timer);
       player.destroy();
