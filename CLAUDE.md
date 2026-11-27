@@ -183,10 +183,10 @@ web/app.js videoPanel ──POST (text/plain)──▶ GAS doPost ──▶ Gemi
             localStorage (教材・解答・GAS の URL と合言葉)
 ```
 
-- **GAS は「合言葉の照合 + 中継」だけ**。プロンプト・`videoSchema`・検証は
-  `web/video.js` にある。GAS の再デプロイは手作業なので、教材の形を変えても
-  GAS を触らずに済むようにしている。`checkRequest_` で受け付ける形を
-  「YouTube 1本 + 区間 + プロンプト」に絞ってあり、汎用プロキシにはしない。
+- **GAS は「合言葉の照合 + 中継」だけ**。プロンプト・スキーマ・検証は `web/video.js` と
+  `web/captions.js` にある。GAS の再デプロイは手作業なので、教材の形を変えても
+  GAS を触らずに済むようにしている。受け付けるのは「JSON で答える依頼 (schema 必須)」で、
+  動画を付けるなら YouTube 1本 + 区間だけ (`checkRequest_`)。
 - **fetch に Content-Type を付けない**。GAS は CORS のプリフライトに答えられないので、
   text/plain の単純リクエストでしか呼べない。
 - `gas/Code.gs` は `test/gas.test.mjs` が `node:vm` で Apps Script のサービスを
@@ -217,18 +217,21 @@ web/app.js videoPanel ──POST (text/plain)──▶ GAS doPost ──▶ Gemi
   再生区間の変更 → 保存した動画」。動画より上に置くものを増やさないこと。
   「動画を追加」は保存した動画が無いときだけ最初から開き、作成できたら畳む。
   動画タブではヘッダの日付選択を隠す (`body[data-tab="video"]`)。
-- **字幕の時刻は Gemini の見積もりで、区間の後ろほどずれることがある**。プロンプトで
-  「最初の単語が聞こえ始める時刻」を頼んでいるが防ぎきれないので、利用者が直せるようにしてある:
-  「⏱ 字幕のずれを直す」→ 再生中に行の「⏱ ここ」を押すと、その行の印
-  (`entry.anchors` = `{ at: 生成時刻, to: 実時刻 }`) が付く。`applyAnchors` / `makeTimeMap` が
-  印の間を直線補間して全行の時刻を直す (印の外側は端の印と同じだけずらす)。保存データの
-  時刻は書き換えず、表示のたびに計算する。補正で字幕が区間の外へ動いたら、再生区間の
-  既定 (`base`) もそこまで広げる。
-  ずれは1分を超えることもあり、行を探して合わせるのは大変なので、探さずに済む手段を優先する:
-  `fitAnchors` (⚡ 自動補正: 最後の文が区間の終わりで終わる前提で全体を伸縮)、
-  `effectiveAnchors` (印が1つなら先頭の行から比例)、「▶ 区間の最後を聞く」(最後15秒を再生)。
-  いずれも「区間の先頭は合っている」前提。
-- **長い区間は `splitRange` で約1分 (`video.chunkSeconds`) ずつに分けて作り、`mergeParts` で
+- **字幕の作り方は2通り**。「動画を追加」の切り替えで選ぶ (`loadVideoSource`、既定は字幕ファイル)。
+  - **字幕ファイル・コピー (`web/captions.js`)**: 時刻が正確なので推奨。`parseCaptions` が SRT /
+    WebVTT / YouTube の「文字起こしを表示」のコピーを読む。YouTube の自動生成 VTT は
+    「前の行 + 新しい行」が流れる形なので `dedupeRolling` で新しく出た部分だけにし、字幕行の中の
+    空白だけの行が空行になって時刻と文が割れたファイルも読めるようにしてある。Gemini には
+    **文の区切りと日本語訳だけ**を頼み、各文が何番目の字幕行から何番目までか (`from` / `to`) を
+    答えさせる。時刻は `toTranscript` が字幕行から付けるので、Gemini に時刻を書かせない。
+    `validateCaptionSet` は「全行を順に1回ずつ使っているか」を見て、外れたら作り直す。
+    字幕行は `CUES_PER_REQUEST` 行ずつに分けて頼む。GAS には動画を付けない文章だけの依頼で送る
+    (`buildCaptionRequest`、videoUrl なし)。`entry.source = 'captions'` の動画は、字幕の範囲の
+    外へ再生区間を広げても AI では作らない (時刻の正確さが混ざるため)。
+  - **AI が書き起こす**: 字幕の無い動画向け。Gemini が動画を聞いて時刻を見積もるので、
+    区間の後ろほどずれることがある。以前は手で直す補正機能を置いていたが、使いにくかったので
+    外し、正確な時刻が要るときは字幕ファイルを使う方針にした。
+- **(AI のとき) 長い区間は `splitRange` で約1分 (`video.chunkSeconds`) ずつに分けて作り、`mergeParts` で
   つなぐ**。Gemini の時刻は後ろほどずれ、3分の区間だと字幕全体が2分半ぶんにしか見えない
   ことがあるため、区間ごとに正しい開始位置 (`videoMetadata`) から数え直させる。境目の文は
   前の区間が言い切るまで書いてよく (`PART_OVERRUN` 秒まではみ出し可)、次の区間は話し途中の
@@ -281,6 +284,8 @@ web/app.js videoPanel ──POST (text/plain)──▶ GAS doPost ──▶ Gemi
 - `settings.yml` — `settings` ラベルが付いた Issue を `apply-settings.mjs` に通し、
   変更をコミットして Issue にコメント + クローズする。
 - `pages.yml` — リポジトリ全体をそのまま Pages に配信する (`index.html`・`web/`・`data/` が
-  すべて必要なため、サブディレクトリ配信にはできない)。
+  すべて必要なため、サブディレクトリ配信にはできない)。**upload と deploy は別ジョブ**にしてある。
+  同じジョブで続けると、アップロード直後の deploy-pages が成果物を見つけられず
+  「No artifacts named "github-pages"」で落ちることがあった。
 
 `generate.yml` `grade.yml` `settings.yml` は `GEMINI_API_KEY` シークレットに依存する。

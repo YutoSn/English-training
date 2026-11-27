@@ -219,3 +219,12 @@ export function loadAutoScroll() {
 export function saveAutoScroll(on) {
   writeVideo({ ...readVideo(), autoScroll: on });
 }
+
+/** 「動画を追加」の字幕の作り方 ('captions' | 'ai')。既定は字幕ファイル (時刻が正確)。 */
+export function loadVideoSource() {
+  return readVideo().source === 'ai' ? 'ai' : 'captions';
+}
+
+export function saveVideoSource(source) {
+  writeVideo({ ...readVideo(), source });
+}

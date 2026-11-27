@@ -1,7 +1,9 @@
 /**
  * English Training の動画教材 API (Google Apps Script ウェブアプリ)。
  *
- * やることは「合言葉を確かめて、YouTube の区間を Gemini に渡して、結果を返す」だけ。
+ * やることは「合言葉を確かめて、Gemini に渡して、結果を返す」だけ。依頼は2種類:
+ *   - 動画あり: YouTube の区間を渡して書き起こしてもらう (videoUrl / start / end)
+ *   - 文章だけ: 字幕ファイルの文を区切り直して訳してもらう (videoUrl なし)
  * プロンプト・responseSchema・検証はアプリ側 (web/video.js) が持つ。
  * GAS の再デプロイは手作業なので、教材の作り方を変えてもここを触らずに済むようにしている。
  *
@@ -16,7 +18,8 @@ var GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 var DEFAULT_MODEL = 'gemini-flash-latest';
 // GAS の1実行は6分まで。長い区間は Gemini の処理がそこに収まらない。
 var MAX_SECONDS = 600;
-var MAX_PROMPT_CHARS = 20000;
+// 字幕ファイルの文章だけの依頼は、字幕行をまとめて渡すので長くなる。
+var MAX_PROMPT_CHARS = 60000;
 var YOUTUBE_RE = /^https:\/\/www\.youtube\.com\/watch\?v=[A-Za-z0-9_-]{11}$/;
 var MODEL_RE = /^[a-z0-9][a-z0-9.\-]{0,63}$/;
 
@@ -56,13 +59,20 @@ function parseRequest_(e) {
   }
 }
 
-/** 中継の範囲をこの1種類の呼び出しに絞る (合言葉が漏れても汎用プロキシにならないように)。 */
+/**
+ * 受け付ける形を絞る: JSON で答える依頼だけ (schema 必須)、動画は YouTube の1本と区間だけ、
+ * プロンプトの長さにも上限。合言葉が漏れたときに何でも頼める中継にならないように。
+ */
 function checkRequest_(req) {
-  if (!YOUTUBE_RE.test(String(req.videoUrl))) return 'videoUrl が YouTube の動画 URL ではありません';
-  var start = Number(req.start);
-  var end = Number(req.end);
-  if (!isFinite(start) || !isFinite(end) || start < 0 || end <= start) return '区間が不正です';
-  if (end - start > MAX_SECONDS) return '区間が長すぎます (' + MAX_SECONDS + '秒まで)';
+  if (req.videoUrl !== undefined) {
+    if (!YOUTUBE_RE.test(String(req.videoUrl))) {
+      return 'videoUrl が YouTube の動画 URL ではありません';
+    }
+    var start = Number(req.start);
+    var end = Number(req.end);
+    if (!isFinite(start) || !isFinite(end) || start < 0 || end <= start) return '区間が不正です';
+    if (end - start > MAX_SECONDS) return '区間が長すぎます (' + MAX_SECONDS + '秒まで)';
+  }
   if (typeof req.prompt !== 'string' || !req.prompt) return 'prompt がありません';
   if (req.prompt.length > MAX_PROMPT_CHARS) return 'prompt が長すぎます';
   if (req.model && !MODEL_RE.test(String(req.model))) return 'model の名前が不正です';
@@ -72,31 +82,25 @@ function checkRequest_(req) {
 
 function callGemini_(apiKey, req) {
   var model = req.model || DEFAULT_MODEL;
-  var body = {
-    contents: [
-      {
-        role: 'user',
-        parts: [
-          {
-            fileData: { fileUri: req.videoUrl },
-            videoMetadata: {
-              startOffset: Math.floor(Number(req.start)) + 's',
-              endOffset: Math.ceil(Number(req.end)) + 's',
-            },
-          },
-          { text: req.prompt },
-        ],
-      },
-    ],
-    generationConfig: {
-      temperature: 0.7,
-      maxOutputTokens: 16384,
-      responseMimeType: 'application/json',
-      responseSchema: req.schema,
-      // 欲しいのは音声の書き起こしなので、映像は低解像度で足りる (トークン節約)。
-      mediaResolution: 'MEDIA_RESOLUTION_LOW',
-    },
+  var parts = [{ text: req.prompt }];
+  var generationConfig = {
+    temperature: 0.7,
+    maxOutputTokens: 16384,
+    responseMimeType: 'application/json',
+    responseSchema: req.schema,
   };
+  if (req.videoUrl !== undefined) {
+    parts.unshift({
+      fileData: { fileUri: req.videoUrl },
+      videoMetadata: {
+        startOffset: Math.floor(Number(req.start)) + 's',
+        endOffset: Math.ceil(Number(req.end)) + 's',
+      },
+    });
+    // 欲しいのは音声の書き起こしなので、映像は低解像度で足りる (トークン節約)。
+    generationConfig.mediaResolution = 'MEDIA_RESOLUTION_LOW';
+  }
+  var body = { contents: [{ role: 'user', parts: parts }], generationConfig: generationConfig };
 
   var url = GEMINI_BASE + '/models/' + model + ':generateContent';
   var lastError;

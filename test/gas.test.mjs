@@ -99,6 +99,21 @@ test('動画・区間・プロンプト・スキーマを Gemini に渡し、テ
   assert.equal(call.body.generationConfig.responseMimeType, 'application/json');
 });
 
+test('videoUrl の無い文章だけの依頼は、動画を付けずにプロンプトだけを渡す', () => {
+  const { post, calls } = loadGas({ responses: [ok('{"title":"x"}')] });
+  const res = post({ token: 'secret', prompt: 'translate', schema: { type: 'OBJECT' } });
+  assert.equal(res.ok, true);
+  const { parts } = calls[0].body.contents[0];
+  assert.deepEqual(parts, [{ text: 'translate' }]);
+  assert.equal(calls[0].body.generationConfig.mediaResolution, undefined);
+});
+
+test('文章だけの依頼でも schema が無ければ中継しない', () => {
+  const { post, calls } = loadGas();
+  assert.match(post({ token: 'secret', prompt: 'hello' }).error, /schema/);
+  assert.equal(calls.length, 0);
+});
+
 test('429 は待って再試行し、400 は即座に失敗する', () => {
   const retry = loadGas({ responses: [{ status: 429, body: {} }, ok('{}')] });
   assert.equal(retry.post(request()).ok, true);
