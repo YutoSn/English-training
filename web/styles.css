@@ -285,15 +285,7 @@ ol.transcript li.current .row-buttons .btn:first-child {
   color: #fff;
 }
 
-/* ずれ補正。「⏱ ここ」は補正中だけ出す。印を付けた行は ▶ を色付きにする。 */
 .row-buttons { display: flex; flex-direction: column; gap: 0.3rem; }
-ol.transcript:not(.syncing) .sync-btn { display: none; }
-ol.transcript li.anchored .row-buttons .btn:first-child {
-  border-color: var(--accent);
-  color: var(--accent);
-  font-weight: 700;
-}
-.sync-btn { white-space: nowrap; }
 
 .segmented { gap: 0; }
 .segmented .btn { border-radius: 0; margin-left: -1px; }
@@ -351,4 +343,15 @@ body[data-tab="video"] #day-meta { display: none; }
 /* 横向きのスマホなど背の低い画面では、動画が画面を占めすぎないよう高さで抑える。 */
 @media (max-height: 560px) {
   .player-stage .video-frame { aspect-ratio: auto; height: 45vh; }
+}
+
+/* 「動画を追加」の字幕ファイル / 貼り付け。ファイル選択は標準の見た目を隠してボタンにする。 */
+.caption-source { margin-bottom: 0.75rem; }
+.caption-source textarea { margin-top: 0.5rem; font-size: 0.85rem; }
+label.file-pick { display: inline-flex; align-items: center; position: relative; }
+label.file-pick input[type="file"] {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
 }

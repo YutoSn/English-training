@@ -5,22 +5,17 @@ import {
   buildVideoPrompt,
   checkRange,
   currentLineIndex,
-  applyAnchors,
-  effectiveAnchors,
   endsSentence,
-  fitAnchors,
   formatTime,
   GasError,
   groupTranscript,
   parseGasResponse,
   parseTime,
   parseYouTubeUrl,
-  makeTimeMap,
   mergeParts,
   PART_OVERRUN,
   splitRange,
   resolveSubtitleMode,
-  setAnchor,
   validateVideoSet,
   videoConfig,
   videoSchema,
@@ -303,112 +298,8 @@ test('buildVideoPrompt は短い挨拶を単独の行にしないよう頼む', 
   assert.match(prompt, /"Hi\."/);
 });
 
-test('makeTimeMap は印が無ければ時刻を変えない', () => {
-  const f = makeTimeMap([]);
-  assert.equal(f(123.4), 123.4);
-});
-
-test('makeTimeMap は印1つなら全体を同じだけずらす', () => {
-  const f = makeTimeMap([{ at: 100, to: 103 }]);
-  assert.equal(f(90), 93);
-  assert.equal(f(150), 153);
-});
-
-test('makeTimeMap は2つの印の間を直線で直し、外側は端の印と同じだけずらす', () => {
-  // 先頭は合っているが、後ろほど遅れていく (100秒で20秒ずれる) ケース
-  const f = makeTimeMap([
-    { at: 100, to: 100 },
-    { at: 200, to: 220 },
-  ]);
-  assert.equal(f(90), 90);
-  assert.equal(f(150), 160);
-  assert.equal(f(200), 220);
-  assert.equal(f(250), 270);
-});
-
-test('applyAnchors は start/end を直し、元の時刻を at に残す', () => {
-  const lines = [L(100, 105, 'a.'), L(150, 155, 'b.')];
-  const fixed = applyAnchors(lines, [
-    { at: 100, to: 100 },
-    { at: 200, to: 220 },
-  ]);
-  assert.deepEqual(
-    fixed.map(({ at, start, end }) => ({ at, start, end })),
-    [
-      { at: 100, start: 100, end: 106 },
-      { at: 150, start: 160, end: 166 },
-    ],
-  );
-  // 印が無ければ時刻はそのまま
-  assert.equal(applyAnchors(lines)[1].start, 150);
-});
-
-test('setAnchor は同じ行の印を置き換え、順序の食い違う古い印を外す', () => {
-  let anchors = setAnchor([], 100, 101);
-  anchors = setAnchor(anchors, 200, 215);
-  assert.deepEqual(anchors, [
-    { at: 100, to: 101 },
-    { at: 200, to: 215 },
-  ]);
-  // 同じ行を押し直したら置き換え
-  anchors = setAnchor(anchors, 200, 218);
-  assert.deepEqual(anchors.at(-1), { at: 200, to: 218 });
-  assert.equal(anchors.length, 2);
-  // 後ろの行 (200) より遅い時刻を前の行 (150) に付けたら、食い違う 200 の印を外す
-  anchors = setAnchor(anchors, 150, 230);
-  assert.deepEqual(anchors, [
-    { at: 100, to: 101 },
-    { at: 150, to: 230 },
-  ]);
-});
-
 test('buildVideoPrompt は時刻を音声に合わせるよう頼む', () => {
   assert.match(buildVideoPrompt({ start: 0, end: 60 }), /最初の単語が実際に聞こえ始める時刻/);
-});
-
-test('effectiveAnchors は印1つなら先頭の行から比例させる', () => {
-  assert.deepEqual(effectiveAnchors([{ at: 120, to: 130 }], 80), [
-    { at: 80, to: 80 },
-    { at: 120, to: 130 },
-  ]);
-  // 先頭の行そのものに付けた印は、全体を同じだけずらす (従来どおり)
-  assert.deepEqual(effectiveAnchors([{ at: 80, to: 83 }], 80), [{ at: 80, to: 83 }]);
-  // 2つ以上ならそのまま
-  const two = [
-    { at: 80, to: 81 },
-    { at: 120, to: 130 },
-  ];
-  assert.equal(effectiveAnchors(two, 80), two);
-  // 1か所押すだけで、間の行も比例して直る
-  const lines = [L(80, 85, 'a.'), L(100, 105, 'b.'), L(120, 125, 'c.')];
-  const fixed = applyAnchors(lines, effectiveAnchors([{ at: 120, to: 128 }], 80));
-  assert.deepEqual(
-    fixed.map((l) => l.start),
-    [80, 104, 128],
-  );
-});
-
-test('fitAnchors は最後の文が区間の終わりで終わるよう全体を伸縮させる', () => {
-  // 実際の音声は生成時刻の1.2倍のペース: 最後の行 (生成 120〜127.5) は実際には 137 で終わる
-  const lines = [L(80, 85.5, 'a.'), L(100, 105.5, 'b.'), L(120, 127.5, 'c.')];
-  const anchors = fitAnchors(lines, 137);
-  assert.deepEqual(anchors, [
-    { at: 80, to: 80 },
-    { at: 127.5, to: 137 },
-  ]);
-  assert.deepEqual(
-    applyAnchors(lines, anchors).map((l) => [l.start, l.end]),
-    [
-      [80, 86.6],
-      [104, 110.6],
-      [128, 137],
-    ],
-  );
-});
-
-test('fitAnchors は字幕が空・区間がおかしいときは何もしない', () => {
-  assert.deepEqual(fitAnchors([], 100), []);
-  assert.deepEqual(fitAnchors([L(80, 85, 'a.')], 70), []);
 });
 
 test('splitRange は約1分ずつに分け、短い端切れは1つ前に足す', () => {

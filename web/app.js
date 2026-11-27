@@ -26,6 +26,8 @@ import {
   saveLastVideoId,
   loadAutoScroll,
   saveAutoScroll,
+  loadVideoSource,
+  saveVideoSource,
 } from './store.js';
 import {
   TOEIC_MIN,
@@ -47,16 +49,12 @@ import {
   buildGasRequest,
   buildVideoPrompt,
   checkRange,
-  applyAnchors,
   currentLineIndex,
-  effectiveAnchors,
-  fitAnchors,
   formatTime,
   GasError,
   groupTranscript,
   mergeParts,
   PART_OVERRUN,
-  setAnchor,
   splitRange,
   parseGasResponse,
   parseTime,
@@ -68,6 +66,15 @@ import {
   videoLabel,
 } from './video.js';
 import { createPlayer } from './youtube.js';
+import {
+  buildCaptionPrompt,
+  buildCaptionRequest,
+  cuesInRange,
+  parseCaptions,
+  splitCues,
+  toTranscript,
+  validateCaptionSet,
+} from './captions.js';
 
 const state = { config: null, index: null, topics: [], setId: null, day: null, answers: null, tab: null };
 
@@ -1012,11 +1019,88 @@ async function createVideoEntry({ videoId, start, end }, setStatus) {
   }
 }
 
+/* ---- 字幕ファイル / 文字起こしのコピーから作る ---- */
+
+/**
+ * 字幕行のまとまり1つ分を、Gemini に文へ区切り直して訳してもらう。時刻は字幕行のものを
+ * 使うので、Gemini には番号 (何行目から何行目か) だけを答えさせる。番号の使い方が
+ * おかしければエラーを添えて作り直す。
+ */
+async function requestCaptionPart({ gasUrl, token, cues, part }) {
+  const cfg = videoConfig(state.config);
+  let feedback = [];
+  for (let attempt = 1; attempt <= cfg.attempts; attempt++) {
+    const prompt = buildCaptionPrompt({ cues, feedback, part });
+    let set;
+    try {
+      set = await callGas(gasUrl, buildCaptionRequest({ token, prompt, model: cfg.model }));
+    } catch (err) {
+      if (err instanceof GasError && err.retriable && attempt < cfg.attempts) continue;
+      throw err;
+    }
+    const errors = validateCaptionSet(set, cues.length);
+    if (errors.length === 0) {
+      return { title: set.title, transcript: toTranscript(cues, set.sentences) };
+    }
+    if (attempt < cfg.attempts) toast(`区切り方を直しています (${attempt + 1}回目)`);
+    feedback = errors.slice(0, 15);
+  }
+  throw new Error(`字幕を区切り直せませんでした: ${feedback.slice(0, 3).join(' / ')}`);
+}
+
+async function createCaptionEntry({ videoId, cues }, setStatus) {
+  if (video.busy) throw new Error('作成中です。終わるまでお待ちください');
+  const { gasUrl, token } = loadVideoConnection();
+  if (!gasUrl || !token) throw new Error('先に「接続設定」で GAS の URL と合言葉を保存してください');
+
+  video.busy = true;
+  const parts = splitCues(cues);
+  const began = Date.now();
+  let done = 0;
+  const tick = () => {
+    const waited = Math.round((Date.now() - began) / 1000);
+    const progress = parts.length > 1 ? `${done + 1} / ${parts.length} 部分目, ` : '';
+    setStatus(`日本語訳を作成中… (${progress}${waited}秒経過)`);
+  };
+  tick();
+  const timer = setInterval(tick, 1000);
+  try {
+    const results = [];
+    for (const [index, partCues] of parts.entries()) {
+      done = index;
+      const part = { index, count: parts.length };
+      results.push(await requestCaptionPart({ gasUrl, token, cues: partCues, part }));
+    }
+    const start = Math.floor(cues[0].start);
+    const end = Math.ceil(cues.at(-1).end);
+    const entry = {
+      id: `${videoId}@${start}-${end}`,
+      videoId,
+      start,
+      end,
+      createdAt: Date.now(),
+      source: 'captions',
+      set: { title: results[0].title, transcript: results.flatMap((r) => r.transcript) },
+    };
+    saveVideoEntry(entry);
+    setStatus('');
+    return entry;
+  } finally {
+    clearInterval(timer);
+    video.busy = false;
+  }
+}
+
 /** 入力欄の時刻を読み、区間として正しくなければ日本語のメッセージを返す。 */
-function readRange(startInput, endInput, minSeconds) {
+function readRange(
+  startInput,
+  endInput,
+  minSeconds,
+  maxSeconds = videoConfig(state.config).maxSeconds,
+) {
   const start = parseTime(startInput.value);
   const end = parseTime(endInput.value);
-  const error = checkRange(start, end, videoConfig(state.config).maxSeconds, minSeconds);
+  const error = checkRange(start, end, maxSeconds, minSeconds);
   return error ? { error } : { start, end };
 }
 
@@ -1047,6 +1131,89 @@ function videoPanel() {
   const endInput = timeInput('終了 2:05', '終了時刻');
   const status = statusLine();
 
+  /* 字幕の作り方: 字幕ファイル・コピー (時刻が正確) か、AI が動画から書き起こすか */
+  const SOURCES = [
+    ['captions', '📄 字幕ファイル・コピー'],
+    ['ai', '🤖 AI が書き起こす'],
+  ];
+  let source = loadVideoSource();
+  const sourceButtons = SOURCES.map(([id, label]) =>
+    el(
+      'button',
+      {
+        class: 'btn small',
+        'aria-pressed': 'false',
+        onclick: () => {
+          source = id;
+          saveVideoSource(id);
+          refreshSource();
+        },
+      },
+      label,
+    ),
+  );
+  const sourceNote = el('p', { class: 'meta' });
+
+  const fileInput = el('input', {
+    type: 'file',
+    accept: '.srt,.vtt,.sbv,.txt,text/plain,text/vtt',
+    'aria-label': '字幕ファイル',
+  });
+  const pasteInput = el('textarea', {
+    rows: '4',
+    placeholder: 'または、YouTube の「文字起こしを表示」の一覧をここに貼り付け',
+    'aria-label': '文字起こしの貼り付け',
+  });
+  const captionInfo = el('p', { class: 'meta' });
+  let fileCues = null; // 選んだファイルから読み取った字幕行
+
+  /** 貼り付けがあればそれを、無ければ選んだファイルを読む。 */
+  function currentCues() {
+    if (pasteInput.value.trim()) return parseCaptions(pasteInput.value);
+    return fileCues ?? [];
+  }
+
+  function refreshCaptionInfo() {
+    const cues = currentCues();
+    captionInfo.textContent = cues.length
+      ? `字幕 ${cues.length} 行を読み取りました ` +
+        `(${formatTime(cues[0].start)}〜${formatTime(cues.at(-1).end)})`
+      : '字幕ファイル (.srt / .vtt) を選ぶか、文字起こしを貼り付けてください。';
+  }
+
+  fileInput.addEventListener('change', async () => {
+    const file = fileInput.files?.[0];
+    fileCues = file ? parseCaptions(await file.text()) : null;
+    if (file && !fileCues.length) toast('字幕を読み取れませんでした。形式を確かめてください');
+    refreshCaptionInfo();
+  });
+  pasteInput.addEventListener('input', refreshCaptionInfo);
+
+  const captionArea = el(
+    'div',
+    { class: 'caption-source' },
+    el('label', { class: 'file-pick btn small' }, '📂 字幕ファイルを選ぶ', fileInput),
+    pasteInput,
+    captionInfo,
+  );
+
+  function refreshSource() {
+    SOURCES.forEach(([id], i) => {
+      sourceButtons[i].setAttribute('aria-pressed', String(id === source));
+    });
+    const captions = source === 'captions';
+    captionArea.classList.toggle('hidden', !captions);
+    // 字幕ファイルでは区間は任意 (空なら字幕全体)。
+    startInput.placeholder = captions ? '開始 (任意)' : '開始 1:20';
+    endInput.placeholder = captions ? '終了 (任意)' : '終了 2:05';
+    sourceNote.textContent = captions
+      ? '字幕ファイルの時刻をそのまま使うので、字幕と再生位置がずれません。' +
+        'Gemini には文の区切りと日本語訳だけを頼みます。区間を空にすると字幕全体を使います。'
+      : '字幕の無い動画向け。Gemini が動画を聞いて書き起こします' +
+        ' (時刻がずれることがあります)。区間は5分以内。';
+  }
+  refreshCaptionInfo();
+
   // 共有リンクに t= が付いていれば開始に入れておく。
   urlInput.addEventListener('change', () => {
     const parsed = parseYouTubeUrl(urlInput.value);
@@ -1060,12 +1227,33 @@ function videoPanel() {
       onclick: async () => {
         const parsed = parseYouTubeUrl(urlInput.value);
         if (!parsed) return status.set('YouTube の動画 URL を入れてください', true);
-        const range = readRange(startInput, endInput);
-        if (range.error) return status.set(range.error, true);
+
+        let make;
+        if (source === 'captions') {
+          const start = parseTime(startInput.value);
+          const end = parseTime(endInput.value);
+          const typed = (input, value) => input.value.trim() && value === null;
+          if (typed(startInput, start) || typed(endInput, end)) {
+            return status.set('開始と終了は 1:20 のような形で入れてください (空でも可)', true);
+          }
+          const all = currentCues();
+          const cues = cuesInRange(all, start, end);
+          if (!cues.length) {
+            const why = all.length
+              ? '指定した区間に字幕がありません'
+              : '字幕ファイルを選ぶか、文字起こしを貼り付けてください';
+            return status.set(why, true);
+          }
+          make = () => createCaptionEntry({ videoId: parsed.id, cues }, status.set);
+        } else {
+          const range = readRange(startInput, endInput);
+          if (range.error) return status.set(range.error, true);
+          make = () => createVideoEntry({ videoId: parsed.id, ...range }, status.set);
+        }
 
         submit.classList.add('disabled');
         try {
-          const entry = await createVideoEntry({ videoId: parsed.id, ...range }, status.set);
+          const entry = await make();
           addCard.open = false;
           openEntry(entry.id);
           toast('字幕ができました');
@@ -1127,12 +1315,14 @@ function videoPanel() {
     'details',
     { class: 'card add-card', ...(loadVideoLibrary().length ? {} : { open: 'open' }) },
     el('summary', {}, el('h2', {}, '＋ 動画を追加')),
-    el(
-      'p',
-      { class: 'meta' },
-      'YouTube の公開動画の URL と区間 (5分以内) を入れると、英語字幕と日本語訳を作ります。',
-    ),
     el('div', { class: 'controls topic-form' }, urlInput),
+    el(
+      'div',
+      { class: 'controls segmented', role: 'group', 'aria-label': '字幕の作り方' },
+      sourceButtons,
+    ),
+    sourceNote,
+    captionArea,
     el('div', { class: 'controls topic-form' }, startInput, endInput, submit),
     status,
     connection,
@@ -1187,6 +1377,7 @@ function videoPanel() {
   // 再生区間の変更で新しい字幕を作ったとき、ビューアからも開けるように。
   video.open = openEntry;
 
+  refreshSource();
   frag.append(addCard, viewer, libraryCard);
 
   // タブを作り直したとき (別のセットを開いたとき) も開いていた動画を戻す。
@@ -1197,25 +1388,18 @@ function videoPanel() {
 
 function videoViewer(entry) {
   const { set } = entry;
+  // 字幕ファイルから作った動画。範囲の外は AI では作らない (時刻の正確さが混ざるため)。
+  const fromCaptions = entry.source === 'captions';
   // ▶ で再生する単位。短い行は文末までつないでおく (表示時に通すので古いデータにも効く)。
   const grouped = groupTranscript(set.transcript, videoConfig(state.config).segment);
-  // 利用者が付けたずれ補正の印。時刻は表示のたびに印から計算し直す (元の時刻は残す)。
-  let anchors = entry.anchors ?? [];
-  /** 補正後の行。印が1つだけなら先頭から比例させる (effectiveAnchors)。 */
-  const fixedLines = () => applyAnchors(grouped, effectiveAnchors(anchors, grouped[0]?.start));
-
-  // 字幕が掛かる範囲。普段は字幕を作った区間だが、ずれ補正で字幕が区間の外へ
-  // 動いたら (後ろほど遅れていた場合など) そこまで広げ、最後の行も再生できるようにする。
-  const base = { start: entry.start, end: entry.end };
-  function refreshBase() {
-    const lines = fixedLines();
-    base.start = Math.min(entry.start, lines[0]?.start ?? entry.start);
-    base.end = Math.max(entry.end, lines.at(-1)?.end ?? entry.end);
-  }
-  refreshBase();
+  // 字幕が掛かる範囲。字幕を作った区間を基本に、境目で言い切った文が少しはみ出す分も含める。
+  const base = {
+    start: Math.min(entry.start, grouped[0]?.start ?? entry.start),
+    end: Math.max(entry.end, grouped.at(-1)?.end ?? entry.end),
+  };
 
   // 再生区間。字幕の範囲の内側なら、作り直さずに狭めたり動かしたりできる。
-  // entry.play が無い = 字幕の範囲全体 (補正で範囲が変われば一緒に動く)。
+  // entry.play が無い = 字幕の範囲全体。
   const play = { start: entry.play?.start ?? base.start, end: entry.play?.end ?? base.end };
 
   /* ---- プレーヤー ---- */
@@ -1259,7 +1443,9 @@ function videoViewer(entry) {
       (narrowed ? ` (字幕は ${formatTime(base.start)}〜${formatTime(base.end)})` : '');
     rangeHelp.textContent =
       `字幕のある ${formatTime(base.start)}〜${formatTime(base.end)} の内側ならすぐ切り替わります。` +
-      'はみ出す区間は字幕を新しく作ります。';
+      (fromCaptions
+        ? 'それより広い区間は、「動画を追加」で字幕ファイルから作り直してください。'
+        : 'はみ出す区間は字幕を新しく作ります。');
     resetBtn.classList.toggle('hidden', !narrowed);
   }
 
@@ -1280,11 +1466,21 @@ function videoViewer(entry) {
       onclick: async () => {
         // 字幕のある範囲の内側なら、再生区間を変えるだけ (API を呼ばない)。
         // 1文だけのくり返しもできるよう、このときは1秒から受け付ける。
-        const inner = readRange(playStart, playEnd, 1);
+        // 字幕ファイルから作った動画は5分を超えることがあるので、ここでは長さで弾かず、
+        // 字幕の範囲に収まっているかだけを見る。
+        const inner = readRange(playStart, playEnd, 1, Infinity);
         if (!inner.error && inner.start >= base.start && inner.end <= base.end) {
           rangeStatus.set('');
           applyPlayRange(inner.start, inner.end);
           return toast('再生区間を変更しました');
+        }
+        if (fromCaptions) {
+          return rangeStatus.set(
+            inner.error ??
+              `字幕のある ${formatTime(base.start)}〜${formatTime(base.end)} の外です。` +
+                '広げるときは「動画を追加」で字幕ファイルから作り直してください',
+            true,
+          );
         }
         const range = readRange(playStart, playEnd);
         if (range.error) return rangeStatus.set(range.error, true);
@@ -1358,7 +1554,6 @@ function videoViewer(entry) {
     { class: 'meta' },
     '字幕を隠しています。各行の ▶ でその部分だけ再生できます。',
   );
-  let syncing = false;
   let mode = resolveSubtitleMode(loadSubtitleMode(), set.transcript);
   const hasJa = resolveSubtitleMode('ja', set.transcript) === 'ja';
 
@@ -1384,52 +1579,18 @@ function videoViewer(entry) {
     SUBTITLE_MODES.forEach((m, i) => {
       modeButtons[i].setAttribute('aria-pressed', String(m.id === mode));
     });
-    transcriptList.className = `transcript subs-${mode}${syncing ? ' syncing' : ''}`;
+    transcriptList.className = `transcript subs-${mode}`;
     noneNote.classList.toggle('hidden', mode !== 'none');
   }
 
-  /**
-   * 「この行は今ここから始まった」と印を付ける。押すまでの反応の遅れの分だけ少し戻す。
-   * 印が2つ以上あると、その間の行も比例して直る (makeTimeMap)。
-   */
-  const REACTION_SECONDS = 0.3;
-  function markLine(line) {
-    ready.then(() => {
-      const player = video.player;
-      if (!player) return;
-      if (!player.isPlaying()) return toast('動画を再生し、その行が話し始めたところで押してください');
-      const to = Math.max(0, player.currentTime() - REACTION_SECONDS);
-      anchors = setAnchor(anchors, line.at, to);
-      entry.anchors = anchors;
-      saveVideoEntry(entry);
-      followBase();
-      renderTranscript();
-      refreshSync();
-      toast(`この行を ${formatTime(to)} からに合わせました`);
-    });
-  }
-
-  /** 補正で字幕の範囲が変わったら、全体を再生する設定のときは再生区間も合わせる。 */
-  function followBase() {
-    refreshBase();
-    if (!entry.play) {
-      play.start = base.start;
-      play.end = base.end;
-      video.player?.setSegment(base.start, base.end);
-    }
-    refreshRange();
-  }
-
   function renderTranscript() {
-    const segments = fixedLines();
-    const marked = new Set(anchors.map((a) => a.at));
     // 再生区間に少しでも掛かる行だけを出す。
-    const lines = segments.filter((l) => l.end > play.start && l.start < play.end);
+    const lines = grouped.filter((l) => l.end > play.start && l.start < play.end);
     transcriptList.replaceChildren(
       ...lines.map((line) =>
         el(
           'li',
-          { class: marked.has(Math.round(line.at * 100) / 100) ? 'anchored' : '' },
+          {},
           el(
             'div',
             { class: 'row-buttons' },
@@ -1441,15 +1602,6 @@ function videoViewer(entry) {
                 onclick: withPlayer((p) => p.playLine(line)),
               },
               `▶ ${formatTime(line.start)}`,
-            ),
-            el(
-              'button',
-              {
-                class: 'btn small sync-btn',
-                'aria-label': 'この行を今の再生位置に合わせる',
-                onclick: () => markLine(line),
-              },
-              '⏱ ここ',
             ),
           ),
           el(
@@ -1531,96 +1683,11 @@ function videoViewer(entry) {
     ),
   );
 
-  /* ---- ずれ補正 ---- */
-  const syncBtn = el(
-    'button',
-    {
-      class: 'btn small',
-      'aria-pressed': 'false',
-      onclick: () => {
-        syncing = !syncing;
-        refreshMode();
-        refreshSync();
-      },
-    },
-    '⏱ 字幕のずれを直す',
-  );
-  const resetBtn2 = el(
-    'button',
-    {
-      class: 'btn small',
-      onclick: () => {
-        if (!confirm('この動画のずれ補正をすべて取り消しますか？')) return;
-        anchors = [];
-        delete entry.anchors;
-        saveVideoEntry(entry);
-        followBase();
-        renderTranscript();
-        refreshSync();
-      },
-    },
-    '補正を取り消す',
-  );
-  // 探さずに合わせる手段。区間の最初は合っている前提で、後ろほどのずれを直す。
-  const autoFitBtn = el(
-    'button',
-    {
-      class: 'btn small primary',
-      onclick: () => {
-        const fit = fitAnchors(grouped, entry.end);
-        if (!fit.length) return toast('この字幕は自動補正できません');
-        anchors = fit;
-        entry.anchors = anchors;
-        saveVideoEntry(entry);
-        followBase();
-        renderTranscript();
-        refreshSync();
-        toast('字幕を区間の長さに合わせました');
-      },
-    },
-    '⚡ 自動補正',
-  );
-  const tailBtn = el(
-    'button',
-    {
-      class: 'btn small',
-      onclick: withPlayer((p) =>
-        p.playLine({ start: Math.max(base.start, base.end - 15), end: base.end }),
-      ),
-    },
-    '▶ 区間の最後を聞く',
-  );
-  const syncNote = el(
-    'div',
-    { class: 'explanation' },
-    el(
-      'p',
-      {},
-      '「⚡ 自動補正」は、最後の文が区間の終わりで終わるように字幕全体を伸び縮みさせます' +
-        ' (後ろほどずれる場合はこれだけで直ります)。',
-    ),
-    el(
-      'p',
-      {},
-      'まだずれるときは、再生中に行が話し始めたところでその行の「⏱ ここ」を押します。' +
-        '先頭が合っていれば、後ろの方の行で1回押すだけで全体が比例して直ります。' +
-        '最後の行なら「▶ 区間の最後を聞く」で探さずに合わせられます。',
-    ),
-    el('div', { class: 'controls' }, autoFitBtn, tailBtn),
-  );
-  function refreshSync() {
-    syncBtn.setAttribute('aria-pressed', String(syncing));
-    syncBtn.textContent = syncing ? '✓ 補正を終える' : '⏱ 字幕のずれを直す';
-    syncNote.classList.toggle('hidden', !syncing);
-    resetBtn2.classList.toggle('hidden', anchors.length === 0);
-  }
-
   const subtitleCard = el(
     'div',
     { class: 'card' },
     el('h2', {}, set.title),
-    el('div', { class: 'controls' }, autoScrollBtn, syncBtn, resetBtn2),
-    syncNote,
+    el('div', { class: 'controls' }, autoScrollBtn),
     noneNote,
     transcriptList,
   );
@@ -1628,7 +1695,6 @@ function videoViewer(entry) {
   refreshRange();
   renderTranscript();
   refreshMode();
-  refreshSync();
   return [stage, subtitleCard, rangeCard];
 }
 
