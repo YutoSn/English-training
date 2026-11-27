@@ -9,6 +9,12 @@
  */
 export const VIDEO_DEFAULTS = {
   model: 'gemini-flash-latest',
+  // 字幕ファイルの区切りと翻訳は文章だけの軽い仕事なので、考える時間の無い速いモデルを使う
+  // (flash は答える前に考えるので1回に数十秒〜かかり、5分の字幕で20分ほどかかっていた)。
+  // このモデルが使えない (404) ときは model に戻す。
+  captionModel: 'gemini-flash-lite-latest',
+  // 分けた依頼を同時にいくつ送るか。無料枠の回数制限 (1分に10〜15回) に収まる数にする。
+  concurrency: 3,
   // 長い区間は Gemini の処理が GAS の実行時間内に収まらなくなる。
   maxSeconds: 300,
   attempts: 2,
@@ -221,6 +227,30 @@ export async function runHalving(input, run, { split, canSplit, onSplit }) {
     const right = await runHalving(b, run, { split, canSplit, onSplit });
     return [...left, ...right];
   }
+}
+
+/**
+ * items を fn で順に処理するが、同時に limit 件まで並べて走らせる。結果は items の順。
+ * 1件でも失敗したら、走っている分が終わるのを待ってから最初の失敗を投げる
+ * (途中経過の保存を、走りかけの分も含めて済ませるため)。
+ */
+export async function mapPool(items, limit, fn) {
+  const results = new Array(items.length);
+  let next = 0;
+  let failure = null;
+  const worker = async () => {
+    while (next < items.length && !failure) {
+      const i = next++;
+      try {
+        results[i] = await fn(items[i], i);
+      } catch (err) {
+        failure ??= err;
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, worker));
+  if (failure) throw failure;
+  return results;
 }
 
 /* ---------- 作成の途中経過 (再開用) ---------- */

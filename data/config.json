@@ -48,6 +48,8 @@
   },
   "video": {
     "model": "gemini-flash-latest",
+    "captionModel": "gemini-flash-lite-latest",
+    "concurrency": 3,
     "maxSeconds": 300,
     "attempts": 2,
     "segment": {
@@ -56,7 +58,7 @@
       "maxSeconds": 15
     },
     "chunkSeconds": 60,
-    "note": "動画タブ (YouTube) の字幕生成の設定。生成は GAS ウェブアプリ経由 (gas/README.md)。maxSeconds を GAS の上限 600 より大きくしないこと。 segment は字幕1行 (▶ で再生する単位) の大きさ。1行は原則1文で、短すぎる行 (相づちなど) だけ文末までつながれる。 chunkSeconds より長い区間は、その長さずつに分けて字幕を作ってつなぐ (後ろほどずれる時刻を区間ごとに数え直させるため)。"
+    "note": "動画タブ (YouTube) の字幕生成の設定。生成は GAS ウェブアプリ経由 (gas/README.md)。maxSeconds を GAS の上限 600 より大きくしないこと。 segment は字幕1行 (▶ で再生する単位) の大きさ。1行は原則1文で、短すぎる行 (相づちなど) だけ文末までつながれる。 chunkSeconds より長い区間は、その長さずつに分けて字幕を作ってつなぐ (後ろほどずれる時刻を区間ごとに数え直させるため)。 captionModel は字幕ファイルの区切りと翻訳に使う速いモデル (使えなければ model に戻る)。concurrency は同時に送る依頼の数。"
   },
   "repo": "YutoSn/English-training"
 }

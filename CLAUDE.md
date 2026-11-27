@@ -243,8 +243,12 @@ web/app.js videoPanel ──POST (text/plain)──▶ GAS doPost ──▶ Gemi
   ことがあるため、区間ごとに正しい開始位置 (`videoMetadata`) から数え直させる。境目の文は
   前の区間が言い切るまで書いてよく (`PART_OVERRUN` 秒まではみ出し可)、次の区間は話し途中の
   文を含めない。それでも重なった行は、時刻か文章の一致で落とす (時刻はずれうるので文章も見る)。
-  頼むのは1区間ずつ順番に (無料枠の回数制限のため並列にしない)。GAS は区間ごとに同じ形の
-  依頼を受けるだけなので変更不要。
+  分けた区間・字幕行のまとまりは `mapPool` で同時に `video.concurrency` (3) 件まで送る
+  (1件ずつ順番だと5分の字幕で20分ほどかかった。無料枠の回数制限 1分10〜15回に収まる数)。
+  結果は元の順に並ぶ。GAS は区間ごとに同じ形の依頼を受けるだけなので変更不要。
+- **字幕ファイル方式は速いモデル (`video.captionModel` = `gemini-flash-lite-latest`) を使う**。
+  区切りと翻訳だけの軽い仕事で、flash の「考える」時間は要らず、考える分で答えが切れる
+  (MAX_TOKENS) ことも減る。404 なら `callCaptionGas` が `video.model` に戻す。
 - **答えが長すぎて切れた (`finishReason: MAX_TOKENS`) ら、依頼を半分に分けて頼み直す**
   (`runHalving`。字幕ファイルは字幕行を半分ずつ、AI は区間を `halveRange` で半分ずつ)。
   Gemini は「考える」分も maxOutputTokens に数えるので、どの大きさで切れるかは前もって
