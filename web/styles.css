@@ -347,6 +347,8 @@ body[data-tab="video"] #day-meta { display: none; }
 
 /* 「動画を追加」の字幕ファイル / 貼り付け。ファイル選択は標準の見た目を隠してボタンにする。 */
 .caption-source { margin-bottom: 0.75rem; }
+.caption-sites { margin: 0 0 0.5rem; }
+.caption-sites a { color: var(--accent); font-weight: 600; }
 .caption-source textarea { margin-top: 0.5rem; font-size: 0.85rem; }
 label.file-pick { display: inline-flex; align-items: center; position: relative; }
 label.file-pick input[type="file"] {

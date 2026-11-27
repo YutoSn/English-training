@@ -1189,9 +1189,24 @@ function videoPanel() {
   });
   pasteInput.addEventListener('input', refreshCaptionInfo);
 
+  // 字幕ファイルを手に入れる外部サイト。第三者のサイトで広告が多いので、その旨も添える。
+  const externalLink = (href, label) =>
+    el('a', { href, target: '_blank', rel: 'noopener noreferrer' }, label);
+  const captionSites = el(
+    'p',
+    { class: 'meta caption-sites' },
+    '字幕ファイルの入手: ',
+    externalLink('https://downsub.com/', 'DownSub'),
+    ' / ',
+    externalLink('https://savesubs.com/', 'SaveSubs'),
+    ' — 動画の URL を貼り、English の SRT を保存。外部サイトで広告が多いので、' +
+      '押すのは SRT のボタンだけにしてください。',
+  );
+
   const captionArea = el(
     'div',
     { class: 'caption-source' },
+    captionSites,
     el('label', { class: 'file-pick btn small' }, '📂 字幕ファイルを選ぶ', fileInput),
     pasteInput,
     captionInfo,
