@@ -19,6 +19,7 @@ import {
   rangeParts,
   halveRange,
   cachedRun,
+  mapPool,
   aiJobKey,
   aiPieceKey,
   captionJobKey,
@@ -522,4 +523,38 @@ test('作成の鍵は、同じ入力なら同じ・違えば違う', () => {
   assert.notEqual(captionJobKey('v', cues), captionJobKey('v', cues.slice(0, 1)));
   assert.notEqual(aiJobKey('v', 80, 140), aiJobKey('v', 80, 141));
   assert.equal(capPieceKey(cues), '80+2');
+});
+
+test('mapPool は同時に limit 件まで走らせ、結果は元の順に返す', async () => {
+  let running = 0;
+  let peak = 0;
+  const results = await mapPool([30, 10, 20, 5, 15], 3, async (ms, i) => {
+    running++;
+    peak = Math.max(peak, running);
+    await new Promise((r) => setTimeout(r, ms));
+    running--;
+    return `#${i}`;
+  });
+  assert.deepEqual(results, ['#0', '#1', '#2', '#3', '#4']);
+  assert.equal(peak, 3);
+});
+
+test('mapPool は失敗したら新しい分を始めず、走っている分を待ってから最初の失敗を投げる', async () => {
+  const finished = [];
+  await assert.rejects(
+    mapPool([1, 2, 3, 4, 5], 2, async (n) => {
+      await new Promise((r) => setTimeout(r, n === 2 ? 30 : 5));
+      if (n === 1) throw new Error('1 が失敗');
+      finished.push(n);
+    }),
+    /1 が失敗/,
+  );
+  // 1 と同時に走っていた 2 は最後まで終わり (途中経過の保存が済む)、3 以降は始まらない
+  assert.deepEqual(finished, [2]);
+});
+
+test('videoConfig の既定は、字幕ファイル用に速いモデル、同時3件', () => {
+  const cfg = videoConfig({});
+  assert.equal(cfg.captionModel, 'gemini-flash-lite-latest');
+  assert.equal(cfg.concurrency, 3);
 });

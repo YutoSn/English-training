@@ -67,6 +67,7 @@ import {
   halveRange,
   isLastPart,
   isTruncated,
+  mapPool,
   mergeParts,
   PART_OVERRUN,
   rangeParts,
@@ -1089,10 +1090,12 @@ async function requestVideoSet({ videoId, start, end }, { step, onSplit }) {
   );
   const pieces = rangeParts(splitRange(start, end, videoConfig(state.config).chunkSeconds));
   const sets = [];
-  for (const piece of pieces) {
-    const canSplit = (p) => p.end - p.start >= 20;
-    sets.push(...(await runHalving(piece, run, { split: halveRange, canSplit, onSplit })));
-  }
+  const canSplit = (p) => p.end - p.start >= 20;
+  // 分けた区間は互いに関係ないので、同時に何件か送る (結果は区間の順に並ぶ)。
+  const perPiece = await mapPool(pieces, videoConfig(state.config).concurrency, (piece) =>
+    runHalving(piece, run, { split: halveRange, canSplit, onSplit }),
+  );
+  sets.push(...perPiece.flat());
   return {
     title: sets[0].title,
     transcript: mergeParts(sets.map((set) => set.transcript)),
@@ -1131,6 +1134,24 @@ async function createVideoEntry({ videoId, start, end }, setStatus) {
  * 使うので、Gemini には番号 (何行目から何行目か) だけを答えさせる。番号の使い方が
  * おかしければエラーを添えて作り直す。
  */
+/**
+ * 字幕ファイル用の速いモデル (captionModel) が使えなければ (404)、ふだんのモデルに戻す。
+ * 一度戻したら、このページを開いている間は戻したままにする。
+ */
+let captionModelUnavailable = false;
+async function callCaptionGas(gasUrl, token, prompt) {
+  const cfg = videoConfig(state.config);
+  if (!captionModelUnavailable && cfg.captionModel && cfg.captionModel !== cfg.model) {
+    try {
+      return await callGas(gasUrl, buildCaptionRequest({ token, prompt, model: cfg.captionModel }));
+    } catch (err) {
+      if (!/Gemini API 404/.test(String(err?.message))) throw err;
+      captionModelUnavailable = true;
+    }
+  }
+  return callGas(gasUrl, buildCaptionRequest({ token, prompt, model: cfg.model }));
+}
+
 async function requestCaptionPart({ gasUrl, token, cues, part }) {
   const cfg = videoConfig(state.config);
   let feedback = [];
@@ -1138,7 +1159,7 @@ async function requestCaptionPart({ gasUrl, token, cues, part }) {
     const prompt = buildCaptionPrompt({ cues, feedback, part });
     let set;
     try {
-      set = await callGas(gasUrl, buildCaptionRequest({ token, prompt, model: cfg.model }));
+      set = await callCaptionGas(gasUrl, token, prompt);
     } catch (err) {
       if (retriable(err) && attempt < cfg.attempts) continue; // 切れたものは分けて頼み直す
       throw err;
@@ -1184,15 +1205,16 @@ async function createCaptionEntry({ videoId, cues }, setStatus) {
         capPieceKey,
       );
       const results = [];
-      for (const partCues of parts) {
-        // 答えが長すぎて切れたら、字幕行を半分ずつに分けて頼み直す。
-        const pieces = await runHalving(partCues, run, {
+      // 答えが長すぎて切れたら、字幕行を半分ずつに分けて頼み直す。
+      // 分けた部分は互いに関係ないので、同時に何件か送る (結果は字幕の順に並ぶ)。
+      const perPart = await mapPool(parts, videoConfig(state.config).concurrency, (partCues) =>
+        runHalving(partCues, run, {
           split: (piece) => [piece.slice(0, piece.length / 2), piece.slice(piece.length / 2)],
           canSplit: (piece) => piece.length >= 8,
           onSplit,
-        });
-        results.push(...pieces);
-      }
+        }),
+      );
+      results.push(...perPart.flat());
       const entry = {
         id: `${videoId}@${start}-${end}`,
         videoId,
