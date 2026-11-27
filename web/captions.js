@@ -7,6 +7,8 @@
  * Gemini に時刻を書かせないので、動画から書き起こすときのようなずれが起きない。
  */
 
+import { MAX_LINE_WORDS, overlongReason } from './video.js';
+
 /* ---------- 読み取り ---------- */
 
 const ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', '#39': "'" };
@@ -155,9 +157,10 @@ export function buildCaptionPrompt({ cues, feedback = [], part }) {
     'これを、読みやすい文に区切り直し、日本語訳を付けた JSON にしてください。',
     '',
     '## sentences',
-    '- 字幕の行を先頭から順につないで、文末 (ピリオド・?・!) で終わる意味のまとまりに区切る' +
-      ' (目安15〜40語)。',
-    '  "Hi." "Okay." のような短い挨拶・相づちは単独にせず、次の文とつなげる。',
+    '- 字幕の行を先頭から順につないで、**原則1文ずつ**に区切る' +
+      ` (文末はピリオド・?・!、目安8〜25語、長くても${MAX_LINE_WORDS}語まで)。`,
+    '  2文以上を1つのまとまりにしない。とても長い文は、カンマや接続詞の切れ目で分けてよい。',
+    '  "Hi." "Okay." のような3語以下の挨拶・相づちだけは、単独にせず次の文とつなげる。',
     '- from はそのまとまりの最初の行の番号、to は最後の行の番号。',
     `- **0 番から ${cues.length - 1} 番まで、すべての行をちょうど1回ずつ、順番どおりに使う。**` +
       '次のまとまりの from は、前のまとまりの to + 1。',
@@ -217,8 +220,11 @@ export const captionSchema = {
   propertyOrdering: ['title', 'sentences'],
 };
 
-/** 番号の使い方を確かめる。文言はそのまま再生成プロンプトに添える。 */
-export function validateCaptionSet(set, count) {
+/**
+ * 番号の使い方を確かめる。文言はそのまま再生成プロンプトに添える。
+ * checkLength が false なら、まとめすぎ (長すぎる行) は見逃す (最後の試行で使う)。
+ */
+export function validateCaptionSet(set, count, { checkLength = true } = {}) {
   const errors = [];
   if (!set || typeof set !== 'object') return ['JSON オブジェクトではありません'];
   if (typeof set.title !== 'string' || !set.title.trim()) errors.push('title が空です');
@@ -239,6 +245,8 @@ export function validateCaptionSet(set, count) {
     }
     expected = s.to + 1;
     if (typeof s.text !== 'string' || !s.text.trim()) errors.push(`sentences[${i}].text が空です`);
+    const overlong = checkLength && overlongReason(s.text);
+    if (overlong) errors.push(`sentences[${i}] は${overlong}`);
     if (typeof s.ja !== 'string' || !s.ja.trim()) errors.push(`sentences[${i}].ja が空です`);
   });
   if (expected !== count) {

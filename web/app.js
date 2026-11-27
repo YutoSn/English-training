@@ -28,6 +28,8 @@ import {
   saveAutoScroll,
   loadVideoSource,
   saveVideoSource,
+  loadRowPlayMode,
+  saveRowPlayMode,
 } from './store.js';
 import {
   TOEIC_MIN,
@@ -954,7 +956,8 @@ async function requestPart({ gasUrl, token, videoId, start, end, part }, onAttem
       throw err;
     }
 
-    const errors = validateVideoSet(set, { start, end, endSlack });
+    const checkLength = attempt < cfg.attempts;
+    const errors = validateVideoSet(set, { start, end, endSlack, checkLength });
     if (errors.length === 0) return set;
     feedback = errors.slice(0, 15);
   }
@@ -1038,7 +1041,8 @@ async function requestCaptionPart({ gasUrl, token, cues, part }) {
       if (err instanceof GasError && err.retriable && attempt < cfg.attempts) continue;
       throw err;
     }
-    const errors = validateCaptionSet(set, cues.length);
+    // 長すぎる行は作り直しの理由にするが、最後の試行では受け入れる (作成自体を失敗させない)。
+    const errors = validateCaptionSet(set, cues.length, { checkLength: attempt < cfg.attempts });
     if (errors.length === 0) {
       return { title: set.title, transcript: toTranscript(cues, set.sentences) };
     }
@@ -1532,32 +1536,54 @@ function videoViewer(entry) {
     rangeStatus,
   );
 
+  /*
+   * 字幕の ▶ を押したときの再生のしかた。「続けて再生」はその文から再生区間の終わりまで、
+   * 「1文くり返し」はその文だけをくり返す。止めるときは動画をタップ (YouTube の一時停止)。
+   */
+  const PLAY_MODES = [
+    ['continue', '▶ 続けて再生'],
+    ['loop', '🔂 1文くり返し'],
+  ];
+  let playMode = loadRowPlayMode();
+  const playModeButtons = PLAY_MODES.map(([id, label]) =>
+    el(
+      'button',
+      {
+        class: 'btn small',
+        'aria-pressed': 'false',
+        onclick: () => {
+          playMode = id;
+          saveRowPlayMode(id);
+          refreshPlayMode();
+          renderTranscript(); // ▶ / 🔂 の印を付け替える
+        },
+      },
+      label,
+    ),
+  );
+  function refreshPlayMode() {
+    PLAY_MODES.forEach(([id], i) => {
+      playModeButtons[i].setAttribute('aria-pressed', String(id === playMode));
+    });
+  }
+  /** 字幕の行の ▶ を押したとき。 */
+  const playRow = (line) =>
+    withPlayer((p) =>
+      playMode === 'loop' ? p.playLine(line, true) : p.playFrom(line.start, play.end),
+    );
+
   const stage = el(
     'div',
     { class: 'player-stage' },
     frame,
     el(
       'div',
-      { class: 'controls' },
+      { class: 'controls stage-row' },
       el(
-        'button',
-        {
-          class: 'btn primary small',
-          'aria-label': '区間をくり返す',
-          onclick: withPlayer((p) => p.playSegment(true)),
-        },
-        '🔁 くり返す',
+        'div',
+        { class: 'segmented', role: 'group', 'aria-label': '字幕の ▶ を押したときの再生' },
+        playModeButtons,
       ),
-      el(
-        'button',
-        {
-          class: 'btn small',
-          'aria-label': '区間を1回だけ再生',
-          onclick: withPlayer((p) => p.playSegment(false)),
-        },
-        '▶ 1回',
-      ),
-      el('button', { class: 'btn small', onclick: withPlayer((p) => p.pause()) }, '■ 停止'),
       rate,
     ),
   );
@@ -1613,10 +1639,13 @@ function videoViewer(entry) {
               'button',
               {
                 class: 'btn small',
-                'aria-label': `${formatTime(line.start)} から再生`,
-                onclick: withPlayer((p) => p.playLine(line)),
+                'aria-label':
+                  playMode === 'loop'
+                    ? `${formatTime(line.start)} の文をくり返す`
+                    : `${formatTime(line.start)} から続けて再生`,
+                onclick: playRow(line),
               },
-              `▶ ${formatTime(line.start)}`,
+              `${playMode === 'loop' ? '🔂' : '▶'} ${formatTime(line.start)}`,
             ),
           ),
           el(
@@ -1710,6 +1739,7 @@ function videoViewer(entry) {
   refreshRange();
   renderTranscript();
   refreshMode();
+  refreshPlayMode();
   return [stage, subtitleCard, rangeCard];
 }
 

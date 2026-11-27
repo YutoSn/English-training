@@ -228,3 +228,12 @@ export function loadVideoSource() {
 export function saveVideoSource(source) {
   writeVideo({ ...readVideo(), source });
 }
+
+/** 字幕の ▶ を押したときの再生のしかた ('continue' = 続けて再生 | 'loop' = 1文くり返し)。 */
+export function loadRowPlayMode() {
+  return readVideo().rowPlay === 'loop' ? 'loop' : 'continue';
+}
+
+export function saveRowPlayMode(mode) {
+  writeVideo({ ...readVideo(), rowPlay: mode });
+}
