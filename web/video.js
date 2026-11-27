@@ -16,7 +16,8 @@ export const VIDEO_DEFAULTS = {
   // ずれていくので、短く区切って区間ごとに数え直させ、ずれが溜まらないようにする。
   chunkSeconds: 60,
   // 字幕1行 (= ▶ で再生する単位) の大きさ。groupTranscript が短い行をこの大きさまでつなぐ。
-  segment: { minWords: 12, minSeconds: 5, maxSeconds: 30 },
+  // 1行は原則1文。短すぎる文 (相づちなど) だけ次とつなぎ、文末が来なくても15秒で切る。
+  segment: { minWords: 6, minSeconds: 3, maxSeconds: 15 },
 };
 
 export function videoConfig(config) {
@@ -106,6 +107,28 @@ export function checkRange(start, end, maxSeconds = VIDEO_DEFAULTS.maxSeconds, m
   return null;
 }
 
+/* ---------- 字幕1行の長さ ---------- */
+
+/** 1行 (▶ で再生する単位) の語数の上限。これを超える行はまとめすぎ。 */
+export const MAX_LINE_WORDS = 40;
+
+const countWords = (text) => String(text ?? '').trim().split(/\s+/).filter(Boolean).length;
+
+/** 文の数 (文末の . ? ! の数)。 */
+const countSentences = (text) => (String(text ?? '').match(/[.!?]+(?=["'”’)\]]*(\s|$))/g) ?? []).length;
+
+/**
+ * 1行にまとめすぎていれば、その理由 (再生成プロンプトに添える文言)。問題なければ null。
+ * 「Yes. Yes. I know.」のような短い文の連続は許し、長い文を3つ以上まとめたものを弾く。
+ */
+export function overlongReason(text) {
+  const words = countWords(text);
+  if (words > MAX_LINE_WORDS) return `${words}語あり長すぎます。1文ずつに分けてください`;
+  const sentences = countSentences(text);
+  if (sentences >= 3 && words > 20) return `${sentences}文をまとめています。1文ずつに分けてください`;
+  return null;
+}
+
 /* ---------- 長い区間の分割 ---------- */
 
 /** 分けた区間の終わりで文の途中だったとき、その文を言い切るまで許すはみ出し (秒)。 */
@@ -169,8 +192,9 @@ export function buildVideoPrompt({ start, end, feedback = [], part }) {
     '## transcript',
     '- 区間内で話されている英語を、聞こえたとおりに一字一句書き起こす。要約・言い換えはしない。',
     `- **区間の最後 (${formatTime(end)}) まで、すべての発話を漏らさず書き起こす。途中でやめない。**`,
-    '- 1要素は、文末 (ピリオド・?・!) で終わる意味のまとまり (目安15〜40語、5〜20秒)。',
-    '  "Hi." "Okay." のような短い挨拶・相づちは単独の要素にせず、次の文とつなげる。',
+    `- 1要素は**原則1文** (文末はピリオド・?・!、目安8〜25語、長くても${MAX_LINE_WORDS}語まで)。`,
+    '  2文以上を1要素にまとめない。とても長い文は、カンマや接続詞の切れ目で分けてよい。',
+    '  "Hi." "Okay." のような3語以下の挨拶・相づちだけは、単独にせず次の文とつなげる。',
     '  文の途中で要素を切らない。',
     '- start は**その要素の最初の単語が実際に聞こえ始める時刻**、end は最後の単語を言い終えた時刻。',
     '  音声を聞いて合わせ、文の長さから見積もったり等間隔に割り振ったりしない。',
@@ -242,7 +266,7 @@ export const videoSchema = {
  * 生成結果を検証する。エラーの文言はそのまま再生成プロンプトに添えるので、
  * モデルが直し方を読み取れる書き方にする。
  */
-export function validateVideoSet(set, { start, end, endSlack = 3 }) {
+export function validateVideoSet(set, { start, end, endSlack = 3, checkLength = true }) {
   const errors = [];
   if (!set || typeof set !== 'object') return ['JSON オブジェクトではありません'];
   if (typeof set.title !== 'string' || !set.title.trim()) errors.push('title が空です');
@@ -253,6 +277,8 @@ export function validateVideoSet(set, { start, end, endSlack = 3 }) {
   const slack = 3;
   lines.forEach((l, i) => {
     if (typeof l?.text !== 'string' || !l.text.trim()) errors.push(`transcript[${i}].text が空です`);
+    const overlong = checkLength && overlongReason(l?.text);
+    if (overlong) errors.push(`transcript[${i}] は${overlong}`);
     if (typeof l?.ja !== 'string' || !l.ja.trim()) {
       errors.push(`transcript[${i}].ja (日本語訳) が空です`);
     }

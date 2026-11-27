@@ -67,7 +67,6 @@ export async function createPlayer(host, { videoId, start, end }) {
   }
 
   return {
-    playSegment: (loop = true) => playRange(segment.start, segment.end, loop),
     setSegment: (from, to) => {
       segment.start = from;
       segment.end = to;
@@ -76,7 +75,10 @@ export async function createPlayer(host, { videoId, start, end }) {
         playRange(from, to, true);
       }
     },
+    /** 1文だけ再生する (loop なら、その文をくり返す)。 */
     playLine: (line, loop = false) => playRange(line.start, line.end + 0.3, loop),
+    /** from から再生し、to まで来たら止める (字幕の続きをそのまま聞く)。 */
+    playFrom: (from, to) => playRange(from, to, false),
     pause: () => player.pauseVideo(),
     setRate: (rate) => player.setPlaybackRate(rate),
     rates: () => player.getAvailablePlaybackRates?.() ?? [1],

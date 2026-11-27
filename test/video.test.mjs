@@ -12,7 +12,9 @@ import {
   parseGasResponse,
   parseTime,
   parseYouTubeUrl,
+  MAX_LINE_WORDS,
   mergeParts,
+  overlongReason,
   PART_OVERRUN,
   splitRange,
   resolveSubtitleMode,
@@ -292,10 +294,31 @@ test('groupTranscript は話者が替わるとき話者名を本文に残す', (
   assert.equal(g.text, 'A: Hi. B: Hello. A: Shall we start the meeting with the quarterly numbers?');
 });
 
-test('buildVideoPrompt は短い挨拶を単独の行にしないよう頼む', () => {
+test('buildVideoPrompt は原則1文ずつ区切り、短い挨拶だけつなぐよう頼む', () => {
   const prompt = buildVideoPrompt({ start: 0, end: 60 });
-  assert.match(prompt, /文末 \(ピリオド・\?・!\) で終わる/);
+  assert.match(prompt, /原則1文/);
+  assert.match(prompt, /2文以上を1要素にまとめない/);
   assert.match(prompt, /"Hi\."/);
+});
+
+test('overlongReason は長すぎる行と、長い文を3つ以上まとめた行を弾く', () => {
+  assert.equal(overlongReason('A normal sentence with about twelve words in it, nothing more.'), null);
+  assert.equal(overlongReason('Yes. Yes. I know.'), null); // 短い文の連続は許す
+  assert.match(
+    overlongReason(
+      'We went there last weekend. It was a lot of fun for everyone. ' +
+        'Then we came home and had dinner with friends.',
+    ),
+    /3文をまとめています/,
+  );
+  assert.match(overlongReason(`${'word '.repeat(MAX_LINE_WORDS + 1)}end.`), /長すぎます/);
+});
+
+test('validateVideoSet は長すぎる行を弾くが、checkLength: false なら通す', () => {
+  const long = `${'word '.repeat(MAX_LINE_WORDS + 5)}end.`;
+  const set = { title: 't', transcript: [L(80, 100, long, { ja: 'あ' })] };
+  assert.match(validateVideoSet(set, { start: 80, end: 125 }).join('\n'), /長すぎます/);
+  assert.deepEqual(validateVideoSet(set, { start: 80, end: 125, checkLength: false }), []);
 });
 
 test('buildVideoPrompt は時刻を音声に合わせるよう頼む', () => {

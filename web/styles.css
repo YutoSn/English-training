@@ -335,6 +335,9 @@ button.link {
 .player-stage .controls .btn { white-space: nowrap; }
 /* 字幕の切り替えは3等分して横幅いっぱいに並べる。 */
 .player-stage .segmented .btn { flex: 1 1 0; min-width: 0; }
+/* 再生のしかた (2つ) と速度を1行に並べる。 */
+.player-stage .stage-row .segmented { display: flex; flex: 1 1 auto; min-width: 0; }
+.player-stage .stage-row select { flex: 0 0 auto; }
 
 /* 動画タブでは日付の選択とセット情報を出さない (ヘッダを1行にして字幕の場所を空ける)。 */
 body[data-tab="video"] #day-select,

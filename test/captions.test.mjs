@@ -200,6 +200,30 @@ test('validateCaptionSet は行の飛ばし・重なり・最後まで使って�
   assert.match(empty, /title[\s\S]*sentences/);
 });
 
+test('validateCaptionSet は複数の文をまとめすぎた行を弾くが、checkLength: false なら通す', () => {
+  const bundled = {
+    title: 't',
+    sentences: [
+      {
+        from: 0,
+        to: 2,
+        text:
+          "So today we're going to start the show. We talk about Halloween costumes. " +
+          'Or something like that, I guess, every single year.',
+        ja: 'あ',
+      },
+    ],
+  };
+  assert.match(validateCaptionSet(bundled, 3).join('\n'), /3文をまとめています/);
+  assert.deepEqual(validateCaptionSet(bundled, 3, { checkLength: false }), []);
+});
+
+test('buildCaptionPrompt は原則1文ずつ区切るよう頼む', () => {
+  const prompt = buildCaptionPrompt({ cues: [cue(0, 'a')] });
+  assert.match(prompt, /原則1文ずつ/);
+  assert.match(prompt, /2文以上を1つのまとまりにしない/);
+});
+
 test('toTranscript は字幕行の時刻から文の始まりと終わりを付ける', () => {
   const cues = parseCaptions(YOUTUBE_VTT);
   assert.deepEqual(toTranscript(cues, sentences), [
