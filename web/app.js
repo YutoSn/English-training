@@ -30,6 +30,10 @@ import {
   saveVideoSource,
   loadRowPlayMode,
   saveRowPlayMode,
+  loadVideoJob,
+  startVideoJob,
+  saveVideoJobPiece,
+  clearVideoJob,
 } from './store.js';
 import {
   TOEIC_MIN,
@@ -55,6 +59,11 @@ import {
   formatTime,
   GasError,
   groupTranscript,
+  aiJobKey,
+  aiPieceKey,
+  cachedRun,
+  capPieceKey,
+  captionJobKey,
   halveRange,
   isLastPart,
   isTruncated,
@@ -991,30 +1000,98 @@ function progressCounter(total) {
 }
 
 /**
+ * 作成中は画面を消さない (Wake Lock)。別のアプリに切り替えると OS が外すので、戻ってきたら
+ * かけ直す。使えないブラウザでは何もしない。戻り値で外す。
+ */
+async function keepScreenOn() {
+  if (!('wakeLock' in navigator)) return () => {};
+  let lock = null;
+  let active = true;
+  const acquire = async () => {
+    try {
+      lock = await navigator.wakeLock.request('screen');
+    } catch {
+      /* 省電力モードなどで断られることがある。作成は続ける */
+    }
+  };
+  const onVisible = () => {
+    if (active && document.visibilityState === 'visible') acquire();
+  };
+  await acquire();
+  document.addEventListener('visibilitychange', onVisible);
+  return () => {
+    active = false;
+    document.removeEventListener('visibilitychange', onVisible);
+    lock?.release().catch(() => {});
+  };
+}
+
+/**
+ * 字幕の作成1件を走らせる共通部分: 二重起動の防止、画面を消さない、進み具合の表示、
+ * 途中経過の保存 (アプリが閉じられても「続きから作成」できる)。
+ * work({ step }) の中で、分けた1回分ごとに step(raw, keyOf) で包んだ関数を使う。
+ * 包んだ関数は、終わった分は保存し、前回終わっていればその結果を返す。
+ */
+async function runCreation({ job, total, label, setStatus }, work) {
+  if (video.busy) throw new Error('作成中です。終わるまでお待ちください');
+  video.busy = true;
+  const finished = Object.values(startVideoJob(job)).filter((r) => r.split !== true).length;
+  if (finished) toast(`前回の続きから作成します (${finished} 件済み)`);
+  const release = await keepScreenOn();
+  const progress = progressCounter(total);
+  const began = Date.now();
+  const tick = () => {
+    const waited = Math.round((Date.now() - began) / 1000);
+    setStatus(`${label}… (${progress.text()}${waited}秒経過)`);
+  };
+  tick();
+  const timer = setInterval(tick, 1000);
+  const step = (raw, keyOf) => {
+    const run = cachedRun(raw, {
+      keyOf,
+      get: (key) => loadVideoJob()?.pieces?.[key],
+      set: (key, result) => saveVideoJobPiece(job.key, key, result),
+    });
+    return async (input) => {
+      const result = await run(input);
+      progress.done();
+      return result;
+    };
+  };
+  try {
+    const entry = await work({ step, onSplit: progress.split });
+    clearVideoJob();
+    setStatus('');
+    return entry;
+  } finally {
+    clearInterval(timer);
+    release();
+    video.busy = false;
+  }
+}
+
+/**
  * 区間を splitRange で分け、順番に作ってつなぐ。Gemini の時刻は後ろほどずれるので、
  * 短い区間ごとに正しい開始位置から数え直させて、ずれが溜まらないようにする。
  * 答えが長すぎて切れたら、その区間をさらに半分に分ける (runHalving)。
  * 無料枠の回数制限に当たらないよう、並列にはせず1つずつ頼む。
  */
-async function requestVideoSet({ videoId, start, end }, progress) {
+async function requestVideoSet({ videoId, start, end }, { step, onSplit }) {
   const { gasUrl, token } = loadVideoConnection();
   if (!gasUrl || !token) throw new Error('先に「接続設定」で GAS の URL と合言葉を保存してください');
 
+  const run = step(
+    (p) =>
+      requestPart({ gasUrl, token, videoId, ...p }, (attempt) => {
+        if (attempt > 1) toast(`条件を満たさなかったので作り直しています (${attempt}回目)`);
+      }),
+    aiPieceKey,
+  );
   const pieces = rangeParts(splitRange(start, end, videoConfig(state.config).chunkSeconds));
   const sets = [];
   for (const piece of pieces) {
-    const results = await runHalving(
-      piece,
-      async (p) => {
-        const set = await requestPart({ gasUrl, token, videoId, ...p }, (attempt) => {
-          if (attempt > 1) toast(`条件を満たさなかったので作り直しています (${attempt}回目)`);
-        });
-        progress.done();
-        return set;
-      },
-      { split: halveRange, canSplit: (p) => p.end - p.start >= 20, onSplit: progress.split },
-    );
-    sets.push(...results);
+    const canSplit = (p) => p.end - p.start >= 20;
+    sets.push(...(await runHalving(piece, run, { split: halveRange, canSplit, onSplit })));
   }
   return {
     title: sets[0].title,
@@ -1024,31 +1101,27 @@ async function requestVideoSet({ videoId, start, end }, progress) {
 
 /**
  * 字幕を作って保存する。進み具合は setStatus に流す。
- * 作成フォームと「再生区間を変更」(字幕の無い範囲へ広げたとき) の両方から使う。
+ * 作成フォーム・「再生区間を変更」(字幕の無い範囲へ広げたとき)・「続きから作成」から使う。
  */
 async function createVideoEntry({ videoId, start, end }, setStatus) {
-  if (video.busy) throw new Error('作成中です。終わるまでお待ちください');
-  video.busy = true;
-  const began = Date.now();
-  const count = splitRange(start, end, videoConfig(state.config).chunkSeconds).length;
-  const progress = progressCounter(count);
-  const tick = () => {
-    const waited = Math.round((Date.now() - began) / 1000);
-    setStatus(`作成中… (${progress.text()}${waited}秒経過 / 目安 ${count}〜${count * 2}分)`);
+  const { gasUrl, token } = loadVideoConnection();
+  if (!gasUrl || !token) throw new Error('先に「接続設定」で GAS の URL と合言葉を保存してください');
+  const job = {
+    key: aiJobKey(videoId, start, end),
+    source: 'ai',
+    videoId,
+    start,
+    end,
+    label: `AI ${formatTime(start)}〜${formatTime(end)}`,
   };
-  tick();
-  const timer = setInterval(tick, 1000);
-  try {
-    const set = await requestVideoSet({ videoId, start, end }, progress);
+  const total = splitRange(start, end, videoConfig(state.config).chunkSeconds).length;
+  return runCreation({ job, total, label: '作成中', setStatus }, async (ctx) => {
+    const set = await requestVideoSet({ videoId, start, end }, ctx);
     const id = `${videoId}@${start}-${end}`;
     const entry = { id, videoId, start, end, createdAt: Date.now(), set };
     saveVideoEntry(entry);
-    setStatus('');
     return entry;
-  } finally {
-    clearInterval(timer);
-    video.busy = false;
-  }
+  });
 }
 
 /* ---- 字幕ファイル / 文字起こしのコピーから作る ---- */
@@ -1082,59 +1155,57 @@ async function requestCaptionPart({ gasUrl, token, cues, part }) {
 }
 
 async function createCaptionEntry({ videoId, cues }, setStatus) {
-  if (video.busy) throw new Error('作成中です。終わるまでお待ちください');
   const { gasUrl, token } = loadVideoConnection();
   if (!gasUrl || !token) throw new Error('先に「接続設定」で GAS の URL と合言葉を保存してください');
 
-  video.busy = true;
-  const parts = splitCues(cues);
-  const progress = progressCounter(parts.length);
-  const began = Date.now();
-  const tick = () => {
-    const waited = Math.round((Date.now() - began) / 1000);
-    setStatus(`日本語訳を作成中… (${progress.text()}${waited}秒経過)`);
+  const start = Math.floor(cues[0].start);
+  const end = Math.ceil(cues.at(-1).end);
+  // 字幕行も残す (続きから作るとき、字幕ファイルを選び直さなくて済むように)。
+  const job = {
+    key: captionJobKey(videoId, cues),
+    source: 'captions',
+    videoId,
+    cues,
+    label: `字幕ファイル ${formatTime(start)}〜${formatTime(end)}`,
   };
-  tick();
-  const timer = setInterval(tick, 1000);
-  try {
-    const results = [];
-    for (const partCues of parts) {
-      // 答えが長すぎて切れたら、字幕行を半分ずつに分けて頼み直す。
-      const pieces = await runHalving(
-        partCues,
-        async (piece) => {
-          // 分けて頼むときは「長い字幕の一部」と伝える (part を付ける)。
-          const part = parts.length > 1 || piece.length < partCues.length ? {} : undefined;
-          const result = await requestCaptionPart({ gasUrl, token, cues: piece, part });
-          progress.done();
-          return result;
-        },
-        {
+  const parts = splitCues(cues);
+  return runCreation(
+    { job, total: parts.length, label: '日本語訳を作成中', setStatus },
+    async ({ step, onSplit }) => {
+      // 分けて頼むときは「長い字幕の一部」と伝える (part を付ける)。
+      const run = step(
+        (piece) =>
+          requestCaptionPart({
+            gasUrl,
+            token,
+            cues: piece,
+            part: parts.length > 1 || piece.length < cues.length ? {} : undefined,
+          }),
+        capPieceKey,
+      );
+      const results = [];
+      for (const partCues of parts) {
+        // 答えが長すぎて切れたら、字幕行を半分ずつに分けて頼み直す。
+        const pieces = await runHalving(partCues, run, {
           split: (piece) => [piece.slice(0, piece.length / 2), piece.slice(piece.length / 2)],
           canSplit: (piece) => piece.length >= 8,
-          onSplit: progress.split,
-        },
-      );
-      results.push(...pieces);
-    }
-    const start = Math.floor(cues[0].start);
-    const end = Math.ceil(cues.at(-1).end);
-    const entry = {
-      id: `${videoId}@${start}-${end}`,
-      videoId,
-      start,
-      end,
-      createdAt: Date.now(),
-      source: 'captions',
-      set: { title: results[0].title, transcript: results.flatMap((r) => r.transcript) },
-    };
-    saveVideoEntry(entry);
-    setStatus('');
-    return entry;
-  } finally {
-    clearInterval(timer);
-    video.busy = false;
-  }
+          onSplit,
+        });
+        results.push(...pieces);
+      }
+      const entry = {
+        id: `${videoId}@${start}-${end}`,
+        videoId,
+        start,
+        end,
+        createdAt: Date.now(),
+        source: 'captions',
+        set: { title: results[0].title, transcript: results.flatMap((r) => r.transcript) },
+      };
+      saveVideoEntry(entry);
+      return entry;
+    },
+  );
 }
 
 /** 入力欄の時刻を読み、区間として正しくなければ日本語のメッセージを返す。 */
@@ -1312,17 +1383,7 @@ function videoPanel() {
           make = () => createVideoEntry({ videoId: parsed.id, ...range }, status.set);
         }
 
-        submit.classList.add('disabled');
-        try {
-          const entry = await make();
-          addCard.open = false;
-          openEntry(entry.id);
-          toast('字幕ができました');
-        } catch (err) {
-          status.set(err.message ?? String(err), true);
-        } finally {
-          submit.classList.remove('disabled');
-        }
+        await runFromForm(make);
       },
     },
     '作成する',
@@ -1372,10 +1433,77 @@ function videoPanel() {
   );
 
   // 普段は畳んでおき、動画を一番上に出す。保存した動画が1本も無いときだけ最初から開く。
+  /*
+   * 作成の途中で止まった (アプリが閉じられた・失敗した) ものがあれば、続きから作れるようにする。
+   * 字幕行や区間は保存してあるので、ファイルを選び直さなくてよい。
+   */
+  const jobBanner = el('div', { class: 'job-banner hidden' });
+
+  /** 作成を走らせて、成功したら開く。失敗したら理由を出し、続きからの案内を出し直す。 */
+  async function runFromForm(make) {
+    submit.classList.add('disabled');
+    jobBanner.classList.add('hidden');
+    try {
+      const entry = await make();
+      addCard.open = false;
+      openEntry(entry.id);
+      toast('字幕ができました');
+    } catch (err) {
+      status.set(err.message ?? String(err), true);
+    } finally {
+      submit.classList.remove('disabled');
+      refreshJob();
+    }
+  }
+
+  function refreshJob() {
+    const job = loadVideoJob();
+    if (!job || video.busy) return jobBanner.classList.add('hidden');
+    const done = Object.values(job.pieces ?? {}).filter((r) => r.split !== true).length;
+    jobBanner.replaceChildren(
+      el('p', {}, `⏸ 作成途中の字幕があります: ${job.label} (${done} 回分 済み)`),
+      el(
+        'div',
+        { class: 'controls' },
+        el(
+          'button',
+          {
+            class: 'btn primary small',
+            onclick: () =>
+              runFromForm(() =>
+                job.source === 'captions'
+                  ? createCaptionEntry({ videoId: job.videoId, cues: job.cues }, status.set)
+                  : createVideoEntry(job, status.set),
+              ),
+          },
+          '▶ 続きから作成',
+        ),
+        el(
+          'button',
+          {
+            class: 'btn small',
+            onclick: () => {
+              if (!confirm('作成途中の字幕を破棄しますか？')) return;
+              clearVideoJob();
+              refreshJob();
+            },
+          },
+          '破棄',
+        ),
+      ),
+    );
+    jobBanner.classList.remove('hidden');
+  }
+
   const addCard = el(
     'details',
-    { class: 'card add-card', ...(loadVideoLibrary().length ? {} : { open: 'open' }) },
+    {
+      class: 'card add-card',
+      // 保存した動画が無いとき、作成途中のものがあるときは最初から開く
+      ...(loadVideoLibrary().length && !loadVideoJob() ? {} : { open: 'open' }),
+    },
     el('summary', {}, el('h2', {}, '＋ 動画を追加')),
+    jobBanner,
     el('div', { class: 'controls topic-form' }, urlInput),
     el(
       'div',
@@ -1439,6 +1567,7 @@ function videoPanel() {
   video.open = openEntry;
 
   refreshSource();
+  refreshJob();
   frag.append(addCard, viewer, libraryCard);
 
   // タブを作り直したとき (別のセットを開いたとき) も開いていた動画を戻す。

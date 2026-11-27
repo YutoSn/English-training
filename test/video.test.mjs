@@ -18,6 +18,11 @@ import {
   PART_OVERRUN,
   rangeParts,
   halveRange,
+  cachedRun,
+  aiJobKey,
+  aiPieceKey,
+  captionJobKey,
+  capPieceKey,
   runHalving,
   isTruncated,
   splitRange,
@@ -444,4 +449,77 @@ test('currentLineIndex は再生位置の行を返し、行の間では直前の
   assert.equal(currentLineIndex(lines, 87), 0);
   assert.equal(currentLineIndex(lines, 92), 1);
   assert.equal(currentLineIndex(lines, 200), 2);
+});
+
+test('cachedRun は終わった分を保存し、次は頼まずにその結果を返す', async () => {
+  const store = {};
+  const calls = [];
+  const run = cachedRun(
+    async (p) => {
+      calls.push(p.start);
+      return `set ${p.start}`;
+    },
+    { keyOf: aiPieceKey, get: (k) => store[k], set: (k, v) => (store[k] = v) },
+  );
+  assert.equal(await run({ start: 80, end: 140 }), 'set 80');
+  assert.equal(await run({ start: 80, end: 140 }), 'set 80');
+  assert.deepEqual(calls, [80]);
+  assert.deepEqual(store, { '80-140': 'set 80' });
+});
+
+test('cachedRun は切れた部分を覚え、次はすぐ「切れた」として返す (失敗は保存しない)', async () => {
+  const store = {};
+  let calls = 0;
+  const opts = { keyOf: aiPieceKey, get: (k) => store[k], set: (k, v) => (store[k] = v) };
+  const truncating = cachedRun(async () => {
+    calls++;
+    throw new GasError('finishReason: MAX_TOKENS');
+  }, opts);
+  await assert.rejects(truncating({ start: 0, end: 60 }), (err) => isTruncated(err));
+  assert.deepEqual(store['0-60'], { split: true });
+  await assert.rejects(truncating({ start: 0, end: 60 }), (err) => isTruncated(err));
+  assert.equal(calls, 1, '2回目は Gemini に頼まない');
+
+  const failing = cachedRun(async () => {
+    throw new GasError('合言葉が一致しません');
+  }, opts);
+  await assert.rejects(failing({ start: 60, end: 120 }), /合言葉/);
+  assert.equal(store['60-120'], undefined);
+});
+
+test('runHalving + cachedRun で、再開時は前回分けた部分から続く', async () => {
+  const store = {};
+  const opts = { keyOf: (x) => x.join(','), get: (k) => store[k], set: (k, v) => (store[k] = v) };
+  const split = (x) => [x.slice(0, x.length / 2), x.slice(x.length / 2)];
+  const canSplit = (x) => x.length > 1;
+  // 1回目: 2つより大きいと切れ、[3,4] を頼んだところでアプリが閉じられた
+  let sent = [];
+  const first = cachedRun(async (x) => {
+    sent.push(x.join(''));
+    if (x.length > 2) throw new GasError('MAX_TOKENS');
+    if (x[0] === 3) throw new Error('アプリが閉じられた');
+    return x.join('');
+  }, opts);
+  await assert.rejects(runHalving([1, 2, 3, 4], first, { split, canSplit }), /閉じられた/);
+  assert.deepEqual(sent, ['1234', '12', '34']);
+  // 2回目: 1234 は前回切れたのですぐ分け、12 は保存済み。頼むのは 34 だけ
+  sent = [];
+  const second = cachedRun(async (x) => {
+    sent.push(x.join(''));
+    if (x.length > 2) throw new GasError('MAX_TOKENS');
+    return x.join('');
+  }, opts);
+  assert.deepEqual(await runHalving([1, 2, 3, 4], second, { split, canSplit }), ['12', '34']);
+  assert.deepEqual(sent, ['34']);
+});
+
+test('作成の鍵は、同じ入力なら同じ・違えば違う', () => {
+  const cues = [
+    { start: 80, end: 82, text: 'a' },
+    { start: 82, end: 85, text: 'b' },
+  ];
+  assert.equal(captionJobKey('v', cues), captionJobKey('v', cues.map((c) => ({ ...c }))));
+  assert.notEqual(captionJobKey('v', cues), captionJobKey('v', cues.slice(0, 1)));
+  assert.notEqual(aiJobKey('v', 80, 140), aiJobKey('v', 80, 141));
+  assert.equal(capPieceKey(cues), '80+2');
 });
