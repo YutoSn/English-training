@@ -223,6 +223,49 @@ export async function runHalving(input, run, { split, canSplit, onSplit }) {
   }
 }
 
+/* ---------- 作成の途中経過 (再開用) ---------- */
+
+/**
+ * 作成の1件を表す鍵。字幕ファイルは字幕行の範囲と数、AI は区間で決まる。同じ鍵の
+ * 途中経過があれば、そこから続ける (同じ入力なら分け方も同じになるので、終わった
+ * 部分をそのまま使える)。
+ */
+export function captionJobKey(videoId, cues) {
+  return `cap:${videoId}:${cues[0]?.start}:${cues.at(-1)?.end}:${cues.length}`;
+}
+
+export function aiJobKey(videoId, start, end) {
+  return `ai:${videoId}:${start}:${end}`;
+}
+
+/** 分けた1回分の鍵。字幕行は「最初の行の時刻 + 行数」、AI は区間。 */
+export const capPieceKey = (cues) => `${cues[0]?.start}+${cues.length}`;
+export const aiPieceKey = (p) => `${p.start}-${p.end}`;
+
+/**
+ * run を、終わった分を覚えておく版にする。get(key) で結果があればそれを返し、
+ * 無ければ run して set(key, result) で保存する。アプリが途中で閉じられても、
+ * 次は終わった分を飛ばして続きから作れる。
+ * 答えが切れた部分は { split: true } と覚え、次はすぐに「切れた」として返す
+ * (runHalving がすぐ半分に分ける。同じ大きさで頼み直す無駄を省く)。
+ */
+export function cachedRun(run, { keyOf, get, set }) {
+  return async (input) => {
+    const key = keyOf(input);
+    const saved = get(key);
+    if (saved?.split === true) throw new Error('前回この大きさでは切れた (finishReason: MAX_TOKENS)');
+    if (saved !== undefined) return saved;
+    try {
+      const result = await run(input);
+      set(key, result);
+      return result;
+    } catch (err) {
+      if (isTruncated(err)) set(key, { split: true });
+      throw err;
+    }
+  };
+}
+
 /* ---------- 生成プロンプトと responseSchema ---------- */
 
 /**

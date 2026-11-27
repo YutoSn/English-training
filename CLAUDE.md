@@ -251,6 +251,14 @@ web/app.js videoPanel ──POST (text/plain)──▶ GAS doPost ──▶ Gemi
   分からない。同じ大きさで再試行しても切れるだけなので、`retriable` は切れたものを除く。
   字幕行の1回分 (`CUES_PER_REQUEST`) は、120 行で5分の字幕が切れたので 60 行にした。
   分けた区間の先頭・末尾は `part.first` / `part.last` で表す (半分に分けても外側が受け継ぐ)。
+- **作成は `runCreation` が共通で包む**: 二重起動の防止、作成中は画面を消さない
+  (`keepScreenOn` = Wake Lock。別アプリから戻ったらかけ直す)、進み具合、途中経過の保存。
+  作成はスマホのブラウザの中で動くので、画面オフや切り替えで止まったり、アプリごと
+  閉じられたりする。そこで分けた依頼1回分ごとの結果を `cachedRun` で `job.pieces` に保存し
+  (切れた部分は `{ split: true }` と覚えて、再開時は頼まずにすぐ分ける)、作成の入力
+  (字幕行・区間) も `job` に残す。「動画を追加」に「▶ 続きから作成」が出て、ファイルを
+  選び直さずに残りだけ頼める。作成の鍵は `captionJobKey` / `aiJobKey` (同じ入力なら同じ鍵、
+  分け方も同じなので終わった分をそのまま使える)。終われば `clearVideoJob`。
 - **再生中の行は `currentLineIndex` で決めてハイライト (`li.current`) し、固定された動画の
   すぐ下へ自動スクロールする**。250ms ごとに再生位置を見る (`video.followTimer`、
   `destroyVideoPlayer` で止める)。自分でスクロール (touchmove / wheel) したら4秒止める。

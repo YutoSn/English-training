@@ -237,3 +237,33 @@ export function loadRowPlayMode() {
 export function saveRowPlayMode(mode) {
   writeVideo({ ...readVideo(), rowPlay: mode });
 }
+
+/**
+ * 作成の途中経過 (1件だけ)。アプリが閉じられても続きから作れるよう、作成の入力
+ * (字幕行 / 区間) と、分けた依頼ごとの結果を残す。作成が終われば消す。
+ * @returns {{ key, source, videoId, cues?, start?, end?, label, pieces: object } | null}
+ */
+export function loadVideoJob() {
+  return readVideo().job ?? null;
+}
+
+export function startVideoJob(job) {
+  const current = loadVideoJob();
+  // 同じ作成の続きなら、終わった分を引き継ぐ
+  const pieces = current?.key === job.key ? current.pieces : {};
+  writeVideo({ ...readVideo(), job: { ...job, pieces, updatedAt: Date.now() } });
+  return pieces;
+}
+
+export function saveVideoJobPiece(key, pieceKey, result) {
+  const job = loadVideoJob();
+  if (!job || job.key !== key) return;
+  job.pieces = { ...job.pieces, [pieceKey]: result };
+  job.updatedAt = Date.now();
+  writeVideo({ ...readVideo(), job });
+}
+
+export function clearVideoJob() {
+  const { job, ...rest } = readVideo();
+  writeVideo(rest);
+}

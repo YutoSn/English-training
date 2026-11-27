@@ -360,3 +360,13 @@ label.file-pick input[type="file"] {
   opacity: 0;
   cursor: pointer;
 }
+
+/* 作成途中の字幕の案内 (続きから作成) */
+.job-banner {
+  border: 1px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  border-radius: 8px;
+  padding: 0.5rem 0.75rem 0.1rem;
+  margin: 0.25rem 0 0.75rem;
+}
+.job-banner p { margin: 0 0 0.4rem; font-size: 0.9rem; }
