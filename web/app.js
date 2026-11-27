@@ -30,6 +30,8 @@ import {
   saveVideoSource,
   loadRowPlayMode,
   saveRowPlayMode,
+  loadCaptionFile,
+  saveCaptionFile,
   loadVideoJob,
   startVideoJob,
   saveVideoJobPiece,
@@ -56,6 +58,7 @@ import {
   buildVideoPrompt,
   checkRange,
   currentLineIndex,
+  findYouTubeUrl,
   formatTime,
   GasError,
   groupTranscript,
@@ -87,6 +90,7 @@ import {
   buildCaptionPrompt,
   buildCaptionRequest,
   cuesInRange,
+  cuesToExtend,
   parseCaptions,
   splitCues,
   toTranscript,
@@ -1175,21 +1179,26 @@ async function requestCaptionPart({ gasUrl, token, cues, part }) {
   throw new Error(`字幕を区切り直せませんでした: ${feedback.slice(0, 3).join(' / ')}`);
 }
 
-async function createCaptionEntry({ videoId, cues }, setStatus) {
+/**
+ * 字幕行を Gemini に区切り直して訳してもらう (保存はしない)。groups は字幕行のまとまりの
+ * 配列で、まとまりどうしは間が空いているので別々に訳す (広げるときの「前」と「後ろ」)。
+ * まとまりごとに { title, transcript } を返す。job には再開に要るもの (extra) も残す。
+ */
+async function translateCueGroups({ videoId, groups, label, setStatus, extra = {} }) {
   const { gasUrl, token } = loadVideoConnection();
   if (!gasUrl || !token) throw new Error('先に「接続設定」で GAS の URL と合言葉を保存してください');
 
-  const start = Math.floor(cues[0].start);
-  const end = Math.ceil(cues.at(-1).end);
-  // 字幕行も残す (続きから作るとき、字幕ファイルを選び直さなくて済むように)。
+  const all = groups.flat();
   const job = {
-    key: captionJobKey(videoId, cues),
+    key: `${captionJobKey(videoId, all)}${extra.extend ? ':extend' : ''}`,
     source: 'captions',
     videoId,
-    cues,
-    label: `字幕ファイル ${formatTime(start)}〜${formatTime(end)}`,
+    groups, // 続きから作るとき、字幕ファイルを選び直さなくて済むように
+    label,
+    ...extra,
   };
-  const parts = splitCues(cues);
+  // まとまりごとに CUES_PER_REQUEST 行ずつに分け、どのまとまりの分かを覚えておく
+  const parts = groups.flatMap((cues, group) => splitCues(cues).map((part) => ({ group, part })));
   return runCreation(
     { job, total: parts.length, label: '日本語訳を作成中', setStatus },
     async ({ step, onSplit }) => {
@@ -1200,34 +1209,105 @@ async function createCaptionEntry({ videoId, cues }, setStatus) {
             gasUrl,
             token,
             cues: piece,
-            part: parts.length > 1 || piece.length < cues.length ? {} : undefined,
+            part: parts.length > 1 || piece.length < all.length ? {} : undefined,
           }),
         capPieceKey,
       );
-      const results = [];
       // 答えが長すぎて切れたら、字幕行を半分ずつに分けて頼み直す。
       // 分けた部分は互いに関係ないので、同時に何件か送る (結果は字幕の順に並ぶ)。
-      const perPart = await mapPool(parts, videoConfig(state.config).concurrency, (partCues) =>
-        runHalving(partCues, run, {
+      const perPart = await mapPool(parts, videoConfig(state.config).concurrency, ({ part }) =>
+        runHalving(part, run, {
           split: (piece) => [piece.slice(0, piece.length / 2), piece.slice(piece.length / 2)],
           canSplit: (piece) => piece.length >= 8,
           onSplit,
         }),
       );
-      results.push(...perPart.flat());
-      const entry = {
-        id: `${videoId}@${start}-${end}`,
-        videoId,
-        start,
-        end,
-        createdAt: Date.now(),
-        source: 'captions',
-        set: { title: results[0].title, transcript: results.flatMap((r) => r.transcript) },
-      };
-      saveVideoEntry(entry);
-      return entry;
+      return groups.map((_, group) => {
+        const results = perPart.filter((_, i) => parts[i].group === group).flat();
+        return {
+          title: results[0]?.title ?? '',
+          transcript: results.flatMap((r) => r.transcript),
+        };
+      });
     },
   );
+}
+
+/** 字幕ファイルの字幕行 (cues) から動画の字幕を作る。allCues はファイル全体 (広げる用に残す)。 */
+async function createCaptionEntry({ videoId, cues, allCues }, setStatus) {
+  if (allCues) saveCaptionFile(videoId, allCues);
+  const start = Math.floor(cues[0].start);
+  const end = Math.ceil(cues.at(-1).end);
+  const [result] = await translateCueGroups({
+    videoId,
+    groups: [cues],
+    label: `字幕ファイル ${formatTime(start)}〜${formatTime(end)}`,
+    setStatus,
+  });
+  const entry = {
+    id: `${videoId}@${start}-${end}`,
+    videoId,
+    start,
+    end,
+    createdAt: Date.now(),
+    source: 'captions',
+    set: result,
+  };
+  saveVideoEntry(entry);
+  return entry;
+}
+
+/**
+ * 字幕ファイルから作った動画の字幕を、[start, end] まで広げる。足りない前後の字幕行だけを
+ * 訳して、今の字幕の前後につなぐ (作り直さない)。再生区間も [start, end] にする。
+ */
+async function extendCaptionEntry(entry, { start, end }, setStatus) {
+  const allCues = loadCaptionFile(entry.videoId);
+  if (!allCues) {
+    throw new Error(
+      'この動画の字幕ファイルが保存されていません。「動画を追加」で字幕ファイルを読み込み直すと、' +
+        '広げられるようになります',
+    );
+  }
+  const { before, after } = cuesToExtend(allCues, entry.set.transcript, start, end);
+  if (!before.length && !after.length) {
+    const first = formatTime(allCues[0].start);
+    const last = formatTime(allCues.at(-1).end);
+    throw new Error(`字幕ファイルにその区間の字幕がありません (ファイルは ${first}〜${last})`);
+  }
+  const groups = [before, after].filter((g) => g.length);
+  const results = await translateCueGroups({
+    videoId: entry.videoId,
+    groups,
+    label: `字幕を ${formatTime(start)}〜${formatTime(end)} に広げる`,
+    setStatus,
+    extra: { extend: { entryId: entry.id, start, end } },
+  });
+  const added = Object.fromEntries(
+    groups.map((g, i) => [g === before ? 'before' : 'after', results[i]]),
+  );
+  entry.set.transcript = [
+    ...(added.before?.transcript ?? []),
+    ...entry.set.transcript,
+    ...(added.after?.transcript ?? []),
+  ];
+  if (before.length) entry.start = Math.min(entry.start, Math.floor(before[0].start));
+  if (after.length) entry.end = Math.max(entry.end, Math.ceil(after.at(-1).end));
+  entry.play = { start, end };
+  saveVideoEntry(entry);
+  return entry;
+}
+
+/** 「続きから作成」: 新しく作る途中か、広げる途中かで呼び分ける。 */
+function resumeCaptionJob(job, setStatus) {
+  if (job.extend) {
+    const entry = loadVideoLibrary().find((e) => e.id === job.extend.entryId);
+    if (!entry) throw new Error('広げようとしていた動画が見つかりません (削除された可能性があります)');
+    return extendCaptionEntry(entry, job.extend, setStatus);
+  }
+  // 以前の形式の途中経過は job.cues に字幕行がある
+  const cues = job.groups?.[0] ?? job.cues;
+  return createCaptionEntry({ videoId: job.videoId, cues }, setStatus);
 }
 
 /** 入力欄の時刻を読み、区間として正しくなければ日本語のメッセージを返す。 */
@@ -1295,7 +1375,8 @@ function videoPanel() {
 
   const fileInput = el('input', {
     type: 'file',
-    accept: '.srt,.vtt,.sbv,.txt,text/plain,text/vtt',
+    // 字幕の種類だけを伝えて、選ぶ画面にほかのファイルが並びにくくする (絞り込み方は端末による)
+    accept: '.srt,.vtt,.sbv,application/x-subrip,text/vtt',
     'aria-label': '字幕ファイル',
   });
   const pasteInput = el('textarea', {
@@ -1398,7 +1479,7 @@ function videoPanel() {
               : '字幕ファイルを選ぶか、文字起こしを貼り付けてください';
             return status.set(why, true);
           }
-          make = () => createCaptionEntry({ videoId: parsed.id, cues }, status.set);
+          make = () => createCaptionEntry({ videoId: parsed.id, cues, allCues: all }, status.set);
         } else {
           const range = readRange(startInput, endInput);
           if (range.error) return status.set(range.error, true);
@@ -1494,7 +1575,7 @@ function videoPanel() {
             onclick: () =>
               runFromForm(() =>
                 job.source === 'captions'
-                  ? createCaptionEntry({ videoId: job.videoId, cues: job.cues }, status.set)
+                  ? resumeCaptionJob(job, status.set)
                   : createVideoEntry(job, status.set),
               ),
           },
@@ -1588,6 +1669,30 @@ function videoPanel() {
   // 再生区間の変更で新しい字幕を作ったとき、ビューアからも開けるように。
   video.open = openEntry;
 
+  /**
+   * Android の「共有」で届いたもの (sw.js が受け取る) を「動画を追加」に入れる。
+   * YouTube アプリからは URL、ファイルアプリからは字幕ファイルが届く。
+   */
+  video.receiveShare = (payload) => {
+    addCard.open = true;
+    const url = findYouTubeUrl(payload.url, payload.text, payload.title);
+    if (url) {
+      urlInput.value = url;
+      urlInput.dispatchEvent(new Event('change'));
+    }
+    if (payload.fileText) {
+      source = 'captions';
+      saveVideoSource(source);
+      refreshSource();
+      fileCues = parseCaptions(payload.fileText);
+      refreshCaptionInfo();
+      if (!fileCues.length) toast('共有されたファイルから字幕を読み取れませんでした');
+    }
+    const got = [url && 'URL', payload.fileText && `字幕ファイル (${payload.fileName ?? ''})`];
+    toast(`共有を受け取りました: ${got.filter(Boolean).join(' と ') || '使えるものがありません'}`);
+    addCard.scrollIntoView({ block: 'start' });
+  };
+
   refreshSource();
   refreshJob();
   frag.append(addCard, viewer, libraryCard);
@@ -1656,7 +1761,7 @@ function videoViewer(entry) {
     rangeHelp.textContent =
       `字幕のある ${formatTime(base.start)}〜${formatTime(base.end)} の内側ならすぐ切り替わります。` +
       (fromCaptions
-        ? 'それより広い区間は、「動画を追加」で字幕ファイルから作り直してください。'
+        ? 'はみ出す区間は、保存してある字幕ファイルから足りない部分だけ訳して広げます。'
         : 'はみ出す区間は字幕を新しく作ります。');
     resetBtn.classList.toggle('hidden', !narrowed);
   }
@@ -1687,12 +1792,20 @@ function videoViewer(entry) {
           return toast('再生区間を変更しました');
         }
         if (fromCaptions) {
-          return rangeStatus.set(
-            inner.error ??
-              `字幕のある ${formatTime(base.start)}〜${formatTime(base.end)} の外です。` +
-                '広げるときは「動画を追加」で字幕ファイルから作り直してください',
-            true,
-          );
+          // 字幕ファイルから作った動画は、保存してあるファイル全体から足りない前後だけを訳す。
+          if (inner.error) return rangeStatus.set(inner.error, true);
+          rangeStatus.set('');
+          changeBtn.classList.add('disabled');
+          try {
+            await extendCaptionEntry(entry, inner, rangeStatus.set);
+            video.open?.(entry.id);
+            toast('字幕を広げました');
+          } catch (err) {
+            rangeStatus.set(err.message ?? String(err), true);
+          } finally {
+            changeBtn.classList.remove('disabled');
+          }
+          return;
         }
         const range = readRange(playStart, playEnd);
         if (range.error) return rangeStatus.set(range.error, true);
@@ -2112,10 +2225,29 @@ async function boot() {
   }
 }
 
+/** 共有で届いたもの (sw.js が Cache に置く) を1回だけ取り出す。無ければ null。 */
+async function takeSharedPayload() {
+  const url = new URL(location.href);
+  if (!url.searchParams.has('shared') || !('caches' in window)) return null;
+  url.searchParams.delete('shared');
+  history.replaceState(null, '', url);
+  try {
+    const cache = await caches.open('english-training-share');
+    const response = await cache.match('shared-payload');
+    if (!response) return null;
+    await cache.delete('shared-payload');
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
 async function bootVideoOnly() {
   try {
     state.config = await fetch('data/config.json', { cache: 'no-cache' }).then((r) => r.json());
     renderVideoOnly();
+    const shared = await takeSharedPayload();
+    if (shared) video.receiveShare?.(shared);
   } catch (err) {
     showError(err);
   }

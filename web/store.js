@@ -267,3 +267,34 @@ export function clearVideoJob() {
   const { job, ...rest } = readVideo();
   writeVideo(rest);
 }
+
+/**
+ * 読み込んだ字幕ファイル全体 (字幕行) を動画ごとに残す。作った区間の外へ再生区間を
+ * 広げるとき、足りない部分をここから訳す。教材とは別のキーにして、新しい方から10本だけ持つ。
+ */
+const CAPTIONS_KEY = 'english-training:captions';
+const CAPTIONS_LIMIT = 10;
+
+function readCaptionFiles() {
+  try {
+    return JSON.parse(localStorage.getItem(CAPTIONS_KEY) ?? '{}');
+  } catch {
+    return {};
+  }
+}
+
+export function loadCaptionFile(videoId) {
+  return readCaptionFiles()[videoId]?.cues ?? null;
+}
+
+export function saveCaptionFile(videoId, cues) {
+  const files = { ...readCaptionFiles(), [videoId]: { cues, savedAt: Date.now() } };
+  const kept = Object.entries(files)
+    .sort(([, a], [, b]) => b.savedAt - a.savedAt)
+    .slice(0, CAPTIONS_LIMIT);
+  try {
+    localStorage.setItem(CAPTIONS_KEY, JSON.stringify(Object.fromEntries(kept)));
+  } catch {
+    /* 容量不足など — 広げられないだけで、作った字幕は使える */
+  }
+}

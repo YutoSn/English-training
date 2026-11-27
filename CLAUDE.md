@@ -233,8 +233,11 @@ web/app.js videoPanel ──POST (text/plain)──▶ GAS doPost ──▶ Gemi
     答えさせる。時刻は `toTranscript` が字幕行から付けるので、Gemini に時刻を書かせない。
     `validateCaptionSet` は「全行を順に1回ずつ使っているか」を見て、外れたら作り直す。
     字幕行は `CUES_PER_REQUEST` 行ずつに分けて頼む。GAS には動画を付けない文章だけの依頼で送る
-    (`buildCaptionRequest`、videoUrl なし)。`entry.source = 'captions'` の動画は、字幕の範囲の
-    外へ再生区間を広げても AI では作らない (時刻の正確さが混ざるため)。
+    (`buildCaptionRequest`、videoUrl なし)。読み込んだ**字幕ファイル全体**は動画ごとに
+    `saveCaptionFile` で残し (`english-training:captions`、新しい10本)、`entry.source = 'captions'`
+    の動画の再生区間を字幕の外へ広げると、`cuesToExtend` で足りない前後の字幕行だけを訳して
+    今の字幕の前後につなぐ (`extendCaptionEntry`。作り直さない。AI では作らない — 時刻の
+    正確さが混ざるため)。前と後ろは間が空くので、`translateCueGroups` が別々のまとまりとして訳す。
   - **AI が書き起こす**: 字幕の無い動画向け。Gemini が動画を聞いて時刻を見積もるので、
     区間の後ろほどずれることがある。以前は手で直す補正機能を置いていたが、使いにくかったので
     外し、正確な時刻が要るときは字幕ファイルを使う方針にした。
@@ -286,6 +289,13 @@ web/app.js videoPanel ──POST (text/plain)──▶ GAS doPost ──▶ Gemi
 - アイコンは `icons/icon.svg` が原本。変えたら `node scripts/build-icons.cjs` で PNG を作り直す
   (Playwright の Chromium を使う。maskable は安全領域 80% に縮めて背景を全面に敷く)。
 - 起動時は前回見ていた動画 (`loadLastVideoId`) を開く。
+- **Android の「共有」の受け口** (`manifest` の `share_target` → `sw.js` の `receiveShare`)。
+  YouTube アプリから共有すると URL、ファイルアプリから共有すると字幕ファイルが
+  `./share-target` に POST で届く。sw.js が Cache (`english-training-share`) に置いて
+  `video.html?shared=1` に移し、`takeSharedPayload` → `video.receiveShare` が「動画を追加」に入れる
+  (1回だけ取り出す)。ブラウザからダウンロードフォルダの一覧は読めないので、ファイルを
+  選ぶ手間を減らす手段はこれと、ファイル選択の `accept` を字幕の種類に絞ることだけ。
+  manifest を変えたら、インストール済みのアプリに反映されるまで時間がかかる (入れ直せば即時)。
 
 ## 教材を書くときの基準
 

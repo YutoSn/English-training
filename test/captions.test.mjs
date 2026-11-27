@@ -5,6 +5,7 @@ import {
   buildCaptionRequest,
   captionSchema,
   cuesInRange,
+  cuesToExtend,
   parseCaptions,
   splitCues,
   toTranscript,
@@ -242,4 +243,36 @@ test('buildCaptionRequest は動画を付けない (GAS の文章だけの依頼
   const req = buildCaptionRequest({ token: 't', prompt: 'p', model: 'm' });
   assert.equal(req.videoUrl, undefined);
   assert.equal(req.schema, captionSchema);
+});
+
+test('cuesToExtend は訳し済みの範囲を除いて、足りない前後の字幕行だけを返す', () => {
+  const all = Array.from({ length: 10 }, (_, i) => ({
+    start: 60 + i * 5,
+    end: 65 + i * 5,
+    text: `c${i}`,
+  }));
+  // 訳し済み: c3〜c5 (75〜90秒)
+  const transcript = [
+    { start: 75, end: 85, text: 'a', ja: 'あ' },
+    { start: 85, end: 90, text: 'b', ja: 'い' },
+  ];
+  const { before, after } = cuesToExtend(all, transcript, 60, 100);
+  assert.deepEqual(
+    before.map((c) => c.text),
+    ['c0', 'c1', 'c2'],
+  );
+  assert.deepEqual(
+    after.map((c) => c.text),
+    ['c6', 'c7'],
+  );
+  // 後ろだけ広げる
+  const onlyAfter = cuesToExtend(all, transcript, 75, 95);
+  assert.deepEqual(onlyAfter.before, []);
+  assert.deepEqual(
+    onlyAfter.after.map((c) => c.text),
+    ['c6'],
+  );
+  // 訳し済みの内側なら何も無い
+  const inside = cuesToExtend(all, transcript, 76, 89);
+  assert.deepEqual([inside.before, inside.after], [[], []]);
 });

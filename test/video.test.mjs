@@ -6,6 +6,7 @@ import {
   checkRange,
   currentLineIndex,
   endsSentence,
+  findYouTubeUrl,
   formatTime,
   GasError,
   groupTranscript,
@@ -557,4 +558,15 @@ test('videoConfig の既定は、字幕ファイル用に速いモデル、同�
   const cfg = videoConfig({});
   assert.equal(cfg.captionModel, 'gemini-flash-lite-latest');
   assert.equal(cfg.concurrency, 3);
+});
+
+test('findYouTubeUrl は共有で届いた文の中から YouTube の URL を探す', () => {
+  assert.equal(
+    findYouTubeUrl('', 'Great talk https://youtu.be/dQw4w9WgXcQ?si=abc via YouTube'),
+    'https://youtu.be/dQw4w9WgXcQ?si=abc',
+  );
+  const watch = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
+  assert.equal(findYouTubeUrl(watch), watch);
+  assert.equal(findYouTubeUrl('no url here', 'https://example.com/x'), null);
+  assert.equal(findYouTubeUrl(undefined, null), null);
 });
