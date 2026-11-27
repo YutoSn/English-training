@@ -173,6 +173,56 @@ export function mergeParts(parts) {
   return merged;
 }
 
+/** 分けた区間の先頭か / 末尾か。分けていない (part が無い) ときはどちらでもある。 */
+export const isFirstPart = (part) => !part || part.first !== false;
+export const isLastPart = (part) => !part || part.last !== false;
+
+/** splitRange の結果に、先頭・末尾の印を付ける。 */
+export function rangeParts(ranges) {
+  return ranges.map(([start, end], i) => ({
+    start,
+    end,
+    part: { first: i === 0, last: i === ranges.length - 1 },
+  }));
+}
+
+/** 区間を半分に分ける (答えが長すぎて切れたとき用)。先頭・末尾の印は外側の半分が受け継ぐ。 */
+export function halveRange({ start, end, part }) {
+  const mid = Math.round((start + end) / 2);
+  return [
+    { start, end: mid, part: { first: isFirstPart(part), last: false } },
+    { start: mid, end, part: { first: false, last: isLastPart(part) } },
+  ];
+}
+
+/** Gemini の答えが maxOutputTokens で途中で切れたか (GAS のエラー文言で見分ける)。 */
+export function isTruncated(err) {
+  return /MAX_TOKENS/.test(String(err?.message ?? ''));
+}
+
+/**
+ * run(input) を試し、答えが長すぎて切れたら input を半分に分けてそれぞれやり直す
+ * (切れなくなるまで再帰的に分ける)。結果は分けた順に並べた配列。
+ * 長さの上限はモデルによって違い (考える分も数える)、前もって分からないので、
+ * 小さく頼み直すのがいちばん確実。
+ *
+ * @param {*} input
+ * @param {(input: *) => Promise<*>} run
+ * @param {{ split: (input) => [*, *], canSplit: (input) => boolean, onSplit?: () => void }} o
+ */
+export async function runHalving(input, run, { split, canSplit, onSplit }) {
+  try {
+    return [await run(input)];
+  } catch (err) {
+    if (!isTruncated(err) || !canSplit(input)) throw err;
+    onSplit?.();
+    const [a, b] = split(input);
+    const left = await runHalving(a, run, { split, canSplit, onSplit });
+    const right = await runHalving(b, run, { split, canSplit, onSplit });
+    return [...left, ...right];
+  }
+}
+
 /* ---------- 生成プロンプトと responseSchema ---------- */
 
 /**
@@ -180,7 +230,7 @@ export function mergeParts(parts) {
  * @param {number} o.start  動画内の秒
  * @param {number} o.end
  * @param {string[]} [o.feedback]  前回の検証エラー (再生成時に添える)
- * @param {{ index: number, count: number }} [o.part]  長い区間を分けて作るときの何番目か
+ * @param {{ first: boolean, last: boolean }} [o.part]  長い区間を分けたとき、先頭・末尾の区間か
  */
 export function buildVideoPrompt({ start, end, feedback = [], part }) {
   const range = `${formatTime(start)}〜${formatTime(end)} (${start}秒〜${end}秒)`;
@@ -210,12 +260,12 @@ export function buildVideoPrompt({ start, end, feedback = [], part }) {
     '- この区間の内容を表す日本語の短い見出し (30字以内)。',
   ];
 
-  if (part && part.count > 1) {
-    lines.push('', '## 区間の境目', `この区間は、長い動画を分けたうちの ${part.index + 1} / ${part.count} 番目です。`);
-    if (part.index > 0) {
+  if (part && !(isFirstPart(part) && isLastPart(part))) {
+    lines.push('', '## 区間の境目', 'この区間は、長い動画を分けたうちの一部です。');
+    if (!isFirstPart(part)) {
       lines.push('- 区間の始まりの時点ですでに話されている途中の文は含めない (前の区間で書き起こし済み)。');
     }
-    if (part.index < part.count - 1) {
+    if (!isLastPart(part)) {
       lines.push(
         `- 区間の終わりで文の途中なら、その文の最後まで書き起こす (end が ${formatTime(end)} を` +
           `最大${PART_OVERRUN}秒はみ出してよい)。`,

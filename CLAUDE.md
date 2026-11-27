@@ -245,6 +245,12 @@ web/app.js videoPanel ──POST (text/plain)──▶ GAS doPost ──▶ Gemi
   文を含めない。それでも重なった行は、時刻か文章の一致で落とす (時刻はずれうるので文章も見る)。
   頼むのは1区間ずつ順番に (無料枠の回数制限のため並列にしない)。GAS は区間ごとに同じ形の
   依頼を受けるだけなので変更不要。
+- **答えが長すぎて切れた (`finishReason: MAX_TOKENS`) ら、依頼を半分に分けて頼み直す**
+  (`runHalving`。字幕ファイルは字幕行を半分ずつ、AI は区間を `halveRange` で半分ずつ)。
+  Gemini は「考える」分も maxOutputTokens に数えるので、どの大きさで切れるかは前もって
+  分からない。同じ大きさで再試行しても切れるだけなので、`retriable` は切れたものを除く。
+  字幕行の1回分 (`CUES_PER_REQUEST`) は、120 行で5分の字幕が切れたので 60 行にした。
+  分けた区間の先頭・末尾は `part.first` / `part.last` で表す (半分に分けても外側が受け継ぐ)。
 - **再生中の行は `currentLineIndex` で決めてハイライト (`li.current`) し、固定された動画の
   すぐ下へ自動スクロールする**。250ms ごとに再生位置を見る (`video.followTimer`、
   `destroyVideoPlayer` で止める)。自分でスクロール (touchmove / wheel) したら4秒止める。

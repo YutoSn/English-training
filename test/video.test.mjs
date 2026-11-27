@@ -16,6 +16,10 @@ import {
   mergeParts,
   overlongReason,
   PART_OVERRUN,
+  rangeParts,
+  halveRange,
+  runHalving,
+  isTruncated,
   splitRange,
   resolveSubtitleMode,
   validateVideoSet,
@@ -366,13 +370,65 @@ test('mergeParts は短い文の偶然の一致では捨てない', () => {
 });
 
 test('buildVideoPrompt は分けた区間の境目の扱いを伝える', () => {
-  const middle = buildVideoPrompt({ start: 140, end: 200, part: { index: 1, count: 3 } });
-  assert.match(middle, /2 \/ 3 番目/);
+  const middle = buildVideoPrompt({ start: 140, end: 200, part: { first: false, last: false } });
+  assert.match(middle, /分けたうちの一部/);
   assert.match(middle, /途中の文は含めない/);
   assert.match(middle, new RegExp(`最大${PART_OVERRUN}秒はみ出してよい`));
-  const last = buildVideoPrompt({ start: 200, end: 260, part: { index: 2, count: 3 } });
+  const first = buildVideoPrompt({ start: 80, end: 140, part: { first: true, last: false } });
+  assert.doesNotMatch(first, /途中の文は含めない/);
+  const last = buildVideoPrompt({ start: 200, end: 260, part: { first: false, last: true } });
   assert.doesNotMatch(last, /はみ出してよい/);
   assert.doesNotMatch(buildVideoPrompt({ start: 0, end: 50 }), /区間の境目/);
+  const whole = buildVideoPrompt({ start: 0, end: 50, part: { first: true, last: true } });
+  assert.doesNotMatch(whole, /区間の境目/);
+});
+
+test('rangeParts と halveRange は先頭・末尾の印を正しく受け継ぐ', () => {
+  const parts = rangeParts([
+    [80, 140],
+    [140, 200],
+  ]);
+  assert.deepEqual(parts, [
+    { start: 80, end: 140, part: { first: true, last: false } },
+    { start: 140, end: 200, part: { first: false, last: true } },
+  ]);
+  assert.deepEqual(halveRange(parts[1]), [
+    { start: 140, end: 170, part: { first: false, last: false } },
+    { start: 170, end: 200, part: { first: false, last: true } },
+  ]);
+  const [a, b] = halveRange({ start: 0, end: 60, part: { first: true, last: true } });
+  assert.deepEqual([a.part, b.part], [
+    { first: true, last: false },
+    { first: false, last: true },
+  ]);
+});
+
+test('runHalving は答えが切れたら半分に分けてやり直し、順番どおりに返す', async () => {
+  const tried = [];
+  const results = await runHalving(
+    [1, 2, 3, 4, 5, 6, 7, 8],
+    async (items) => {
+      tried.push(items.length);
+      if (items.length > 2) throw new GasError('生成が完了しませんでした (finishReason: MAX_TOKENS)');
+      return items.join('');
+    },
+    {
+      split: (items) => [items.slice(0, items.length / 2), items.slice(items.length / 2)],
+      canSplit: (items) => items.length > 1,
+    },
+  );
+  assert.deepEqual(results, ['12', '34', '56', '78']);
+  assert.deepEqual(tried, [8, 4, 2, 2, 4, 2, 2]);
+});
+
+test('runHalving は切れた以外のエラーや、もう分けられないときはそのまま投げる', async () => {
+  const other = () => Promise.reject(new GasError('合言葉が一致しません'));
+  const opts = { split: (x) => [x, x], canSplit: () => true };
+  await assert.rejects(runHalving(1, other, opts), /合言葉/);
+  const truncated = () => Promise.reject(new GasError('finishReason: MAX_TOKENS'));
+  await assert.rejects(runHalving(1, truncated, { ...opts, canSplit: () => false }), /MAX_TOKENS/);
+  assert.equal(isTruncated(new Error('x (finishReason: MAX_TOKENS)')), true);
+  assert.equal(isTruncated(new Error('Gemini API 429')), false);
 });
 
 test('validateVideoSet は endSlack の分だけ区間の終わりのはみ出しを許す', () => {

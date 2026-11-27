@@ -159,9 +159,9 @@ test('buildCaptionPrompt は字幕行に 0 から番号を振り、全行を1回
   const retry = buildCaptionPrompt({
     cues: [cue(0, 'a')],
     feedback: ['最後の to は 0 のはず'],
-    part: { index: 1, count: 3 },
+    part: {},
   });
-  assert.match(retry, /2 \/ 3 番目/);
+  assert.match(retry, /分けたうちの一部/);
   assert.match(retry, /前回の出力の問題点[\s\S]*最後の to/);
 });
 
