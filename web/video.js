@@ -93,6 +93,19 @@ export function parseYouTubeUrl(input) {
   return { id, start: t === null ? null : parseTime(t) };
 }
 
+/**
+ * 共有で届いた文 (「動画のタイトル https://youtu.be/xxx」など) から YouTube の URL を探す。
+ * 見つからなければ null。
+ */
+export function findYouTubeUrl(...texts) {
+  for (const text of texts) {
+    for (const word of String(text ?? '').split(/\s+/)) {
+      if (parseYouTubeUrl(word)) return word;
+    }
+  }
+  return null;
+}
+
 export function watchUrl(id) {
   return `https://www.youtube.com/watch?v=${id}`;
 }

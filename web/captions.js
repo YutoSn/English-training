@@ -130,6 +130,21 @@ export function cuesInRange(cues, start, end) {
   );
 }
 
+/**
+ * 再生区間を [start, end] に広げるとき、まだ訳していない字幕行を前後に分けて返す。
+ * 訳し済みの範囲は、今の字幕の最初の行の始まりから最後の行の終わりまで
+ * (字幕行の時刻からそのまま作っているので、これで字幕行と正確に対応する)。
+ * 前と後ろは字幕の途中が抜けているので、別々に訳す (間をまたいで文をつながない)。
+ */
+export function cuesToExtend(allCues, transcript, start, end) {
+  const first = transcript[0]?.start ?? Infinity;
+  const lastEnd = transcript.at(-1)?.end ?? -Infinity;
+  return {
+    before: allCues.filter((c) => c.start >= start - 0.5 && c.start < first - 0.01),
+    after: allCues.filter((c) => c.start >= lastEnd - 0.01 && c.start < end),
+  };
+}
+
 /** 1回の依頼に渡す字幕行の数。多すぎると出力が長くなって途中で切れる。 */
 // 答えには英文と訳が入るので、行数の割に長くなる。120 行では途中で切れた (MAX_TOKENS)。
 // それでも切れたら、アプリが半分に分けて頼み直す (runHalving)。

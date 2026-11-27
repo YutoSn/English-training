@@ -73,3 +73,60 @@ test('sw.js は別オリジン (YouTube・GAS) とGET以外には手を出さな
     assert.equal(responded, false, `${request.method} ${request.url}`);
   }
 });
+
+test('manifest の share_target は共有の受け口へ、字幕ファイルと URL を POST する', () => {
+  const share = manifest.share_target;
+  assert.equal(share.action, './share-target');
+  assert.equal(share.method, 'POST');
+  assert.equal(share.enctype, 'multipart/form-data');
+  assert.equal(share.params.files[0].name, 'captions');
+  assert.ok(share.params.files[0].accept.includes('.srt'));
+  assert.equal(share.params.text, 'text');
+});
+
+test('sw.js は共有で届いた URL と字幕ファイルを Cache に置き、video.html?shared=1 へ移す', async () => {
+  let handler;
+  const stored = {};
+  const context = {
+    URL,
+    Response: class {
+      constructor(body) {
+        this.body = body;
+      }
+      static redirect(href, status) {
+        return { redirect: href, status };
+      }
+    },
+    caches: { open: async () => ({ put: async (key, res) => (stored[key] = res.body) }) },
+    self: {
+      addEventListener: (type, fn) => type === 'fetch' && (handler = fn),
+      location: { origin: 'https://yutosn.github.io' },
+      registration: { scope: 'https://yutosn.github.io/English-training/' },
+    },
+  };
+  vm.createContext(context);
+  vm.runInContext(read('sw.js').toString(), context);
+
+  const form = new Map([
+    ['text', 'Great talk https://youtu.be/dQw4w9WgXcQ?si=abc'],
+    ['captions', { name: 'talk.srt', text: async () => '1\n00:00:01,000 --> 00:00:02,000\nhi\n' }],
+  ]);
+  let responded;
+  handler({
+    request: {
+      method: 'POST',
+      url: 'https://yutosn.github.io/English-training/share-target',
+      formData: async () => form,
+    },
+    respondWith: (p) => (responded = p),
+  });
+  const res = await responded;
+  assert.deepEqual(res, {
+    redirect: 'https://yutosn.github.io/English-training/video.html?shared=1',
+    status: 303,
+  });
+  const payload = JSON.parse(stored['shared-payload']);
+  assert.equal(payload.text, 'Great talk https://youtu.be/dQw4w9WgXcQ?si=abc');
+  assert.equal(payload.fileName, 'talk.srt');
+  assert.match(payload.fileText, /00:00:01,000/);
+});
