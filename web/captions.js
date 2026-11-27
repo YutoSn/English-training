@@ -131,7 +131,9 @@ export function cuesInRange(cues, start, end) {
 }
 
 /** 1回の依頼に渡す字幕行の数。多すぎると出力が長くなって途中で切れる。 */
-export const CUES_PER_REQUEST = 120;
+// 答えには英文と訳が入るので、行数の割に長くなる。120 行では途中で切れた (MAX_TOKENS)。
+// それでも切れたら、アプリが半分に分けて頼み直す (runHalving)。
+export const CUES_PER_REQUEST = 60;
 
 export function splitCues(cues, size = CUES_PER_REQUEST) {
   const parts = [];
@@ -174,11 +176,10 @@ export function buildCaptionPrompt({ cues, feedback = [], part }) {
     '- 内容を表す日本語の短い見出し (30字以内)。',
   ];
 
-  if (part && part.count > 1) {
+  if (part) {
     lines.push(
       '',
-      `この字幕は、長い字幕を分けたうちの ${part.index + 1} / ${part.count} 番目です。` +
-        '前後の部分とは別に、この部分の行だけで区切ってください。',
+      'この字幕は、長い字幕を分けたうちの一部です。前後の部分とは別に、この部分の行だけで区切ってください。',
     );
   }
 

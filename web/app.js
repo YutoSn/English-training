@@ -55,8 +55,13 @@ import {
   formatTime,
   GasError,
   groupTranscript,
+  halveRange,
+  isLastPart,
+  isTruncated,
   mergeParts,
   PART_OVERRUN,
+  rangeParts,
+  runHalving,
   splitRange,
   parseGasResponse,
   parseTime,
@@ -940,7 +945,7 @@ async function callGas(gasUrl, req) {
 /** 分けた区間1つ分の字幕を作る。検証に落ちたらエラーを添えて作り直す。 */
 async function requestPart({ gasUrl, token, videoId, start, end, part }, onAttempt) {
   const cfg = videoConfig(state.config);
-  const endSlack = part.index < part.count - 1 ? PART_OVERRUN : 3;
+  const endSlack = isLastPart(part) ? 3 : PART_OVERRUN;
   let feedback = [];
 
   for (let attempt = 1; attempt <= cfg.attempts; attempt++) {
@@ -952,7 +957,9 @@ async function requestPart({ gasUrl, token, videoId, start, end, part }, onAttem
     try {
       set = await callGas(gasUrl, req);
     } catch (err) {
-      if (err instanceof GasError && err.retriable && attempt < cfg.attempts) continue;
+      // 答えが切れた (MAX_TOKENS) ときは、同じ大きさで頼み直しても切れるので、
+      // ここでは再試行せず呼び出し元に返す (runHalving が半分に分ける)。
+      if (retriable(err) && attempt < cfg.attempts) continue;
       throw err;
     }
 
@@ -964,24 +971,50 @@ async function requestPart({ gasUrl, token, videoId, start, end, part }, onAttem
   throw new Error(`字幕が条件を満たしませんでした: ${feedback.slice(0, 3).join(' / ')}`);
 }
 
+/** 同じ依頼をもう一度試す価値があるか。答えが長すぎて切れたものは、分けないと直らない。 */
+const retriable = (err) => err instanceof GasError && err.retriable && !isTruncated(err);
+
+/**
+ * 進み具合の表示。答えが切れて半分に分けるたびに、依頼の総数が1つ増える。
+ * @returns {{ text: () => string, done: () => void, split: () => void }}
+ */
+function progressCounter(total) {
+  let finished = 0;
+  return {
+    text: () => (total > 1 ? `${Math.min(finished + 1, total)} / ${total} 回目, ` : ''),
+    done: () => finished++,
+    split: () => {
+      total++;
+      toast('長かったので分けて作り直しています');
+    },
+  };
+}
+
 /**
  * 区間を splitRange で分け、順番に作ってつなぐ。Gemini の時刻は後ろほどずれるので、
  * 短い区間ごとに正しい開始位置から数え直させて、ずれが溜まらないようにする。
+ * 答えが長すぎて切れたら、その区間をさらに半分に分ける (runHalving)。
  * 無料枠の回数制限に当たらないよう、並列にはせず1つずつ頼む。
  */
-async function requestVideoSet({ videoId, start, end }, onProgress) {
+async function requestVideoSet({ videoId, start, end }, progress) {
   const { gasUrl, token } = loadVideoConnection();
   if (!gasUrl || !token) throw new Error('先に「接続設定」で GAS の URL と合言葉を保存してください');
 
-  const ranges = splitRange(start, end, videoConfig(state.config).chunkSeconds);
+  const pieces = rangeParts(splitRange(start, end, videoConfig(state.config).chunkSeconds));
   const sets = [];
-  for (const [index, [s, e]] of ranges.entries()) {
-    const part = { index, count: ranges.length };
-    sets.push(
-      await requestPart({ gasUrl, token, videoId, start: s, end: e, part }, (attempt) =>
-        onProgress({ part, attempt }),
-      ),
+  for (const piece of pieces) {
+    const results = await runHalving(
+      piece,
+      async (p) => {
+        const set = await requestPart({ gasUrl, token, videoId, ...p }, (attempt) => {
+          if (attempt > 1) toast(`条件を満たさなかったので作り直しています (${attempt}回目)`);
+        });
+        progress.done();
+        return set;
+      },
+      { split: halveRange, canSplit: (p) => p.end - p.start >= 20, onSplit: progress.split },
     );
+    sets.push(...results);
   }
   return {
     title: sets[0].title,
@@ -998,19 +1031,15 @@ async function createVideoEntry({ videoId, start, end }, setStatus) {
   video.busy = true;
   const began = Date.now();
   const count = splitRange(start, end, videoConfig(state.config).chunkSeconds).length;
-  let done = 0;
+  const progress = progressCounter(count);
   const tick = () => {
     const waited = Math.round((Date.now() - began) / 1000);
-    const progress = count > 1 ? `${done + 1} / ${count} 区間目, ` : '';
-    setStatus(`作成中… (${progress}${waited}秒経過 / 目安 ${count}〜${count * 2}分)`);
+    setStatus(`作成中… (${progress.text()}${waited}秒経過 / 目安 ${count}〜${count * 2}分)`);
   };
   tick();
   const timer = setInterval(tick, 1000);
   try {
-    const set = await requestVideoSet({ videoId, start, end }, ({ part, attempt }) => {
-      done = part.index;
-      if (attempt > 1) toast(`条件を満たさなかったので作り直しています (${attempt}回目)`);
-    });
+    const set = await requestVideoSet({ videoId, start, end }, progress);
     const id = `${videoId}@${start}-${end}`;
     const entry = { id, videoId, start, end, createdAt: Date.now(), set };
     saveVideoEntry(entry);
@@ -1038,7 +1067,7 @@ async function requestCaptionPart({ gasUrl, token, cues, part }) {
     try {
       set = await callGas(gasUrl, buildCaptionRequest({ token, prompt, model: cfg.model }));
     } catch (err) {
-      if (err instanceof GasError && err.retriable && attempt < cfg.attempts) continue;
+      if (retriable(err) && attempt < cfg.attempts) continue; // 切れたものは分けて頼み直す
       throw err;
     }
     // 長すぎる行は作り直しの理由にするが、最後の試行では受け入れる (作成自体を失敗させない)。
@@ -1059,21 +1088,34 @@ async function createCaptionEntry({ videoId, cues }, setStatus) {
 
   video.busy = true;
   const parts = splitCues(cues);
+  const progress = progressCounter(parts.length);
   const began = Date.now();
-  let done = 0;
   const tick = () => {
     const waited = Math.round((Date.now() - began) / 1000);
-    const progress = parts.length > 1 ? `${done + 1} / ${parts.length} 部分目, ` : '';
-    setStatus(`日本語訳を作成中… (${progress}${waited}秒経過)`);
+    setStatus(`日本語訳を作成中… (${progress.text()}${waited}秒経過)`);
   };
   tick();
   const timer = setInterval(tick, 1000);
   try {
     const results = [];
-    for (const [index, partCues] of parts.entries()) {
-      done = index;
-      const part = { index, count: parts.length };
-      results.push(await requestCaptionPart({ gasUrl, token, cues: partCues, part }));
+    for (const partCues of parts) {
+      // 答えが長すぎて切れたら、字幕行を半分ずつに分けて頼み直す。
+      const pieces = await runHalving(
+        partCues,
+        async (piece) => {
+          // 分けて頼むときは「長い字幕の一部」と伝える (part を付ける)。
+          const part = parts.length > 1 || piece.length < partCues.length ? {} : undefined;
+          const result = await requestCaptionPart({ gasUrl, token, cues: piece, part });
+          progress.done();
+          return result;
+        },
+        {
+          split: (piece) => [piece.slice(0, piece.length / 2), piece.slice(piece.length / 2)],
+          canSplit: (piece) => piece.length >= 8,
+          onSplit: progress.split,
+        },
+      );
+      results.push(...pieces);
     }
     const start = Math.floor(cues[0].start);
     const end = Math.ceil(cues.at(-1).end);
