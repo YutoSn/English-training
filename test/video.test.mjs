@@ -572,14 +572,14 @@ test('findYouTubeUrl は共有で届いた文の中から YouTube の URL を探
   assert.equal(findYouTubeUrl(undefined, null), null);
 });
 
-test('splitFilled は [[語]] を補った部分として切り出す', () => {
-  assert.deepEqual(splitFilled('That was [[damn]] good, [[hell]] yes.'), [
+test('splitFilled は [[語]] を聞き取った語、[[?語]] を推測の語として切り出す', () => {
+  assert.deepEqual(splitFilled('That was [[damn]] good, [[?hell]] yes.'), [
     { text: 'That was ', filled: false },
-    { text: 'damn', filled: true },
+    { text: 'damn', filled: true, guessed: false },
     { text: ' good, ', filled: false },
-    { text: 'hell', filled: true },
+    { text: 'hell', filled: true, guessed: true },
     { text: ' yes.', filled: false },
   ]);
   assert.deepEqual(splitFilled('No masks here.'), [{ text: 'No masks here.', filled: false }]);
-  assert.deepEqual(splitFilled('[[damn]]'), [{ text: 'damn', filled: true }]);
+  assert.deepEqual(splitFilled('[[damn]]'), [{ text: 'damn', filled: true, guessed: false }]);
 });

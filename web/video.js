@@ -508,9 +508,11 @@ function mergeLines(lines) {
 /* ---------- 字幕の表示 ---------- */
 
 /**
- * 英文を、ふつうの部分と、伏せ字 [ __ ] を推測で補った部分 ([[語]]) に分ける。
- * 補った部分は表示で色を変え、元は伏せられていた語だと分かるようにする。
- * @returns {{ text: string, filled: boolean }[]}
+ * 英文を、ふつうの部分と、伏せ字 [ __ ] を補った部分に分ける。補った部分は表示で色を変え、
+ * 元は伏せられていた語だと分かるようにする。
+ *   [[語]]  音声を聞いて補った語 (guessed: false)
+ *   [[?語]] 聞き取れず、文脈からの推測のまま (guessed: true)
+ * @returns {{ text: string, filled: boolean, guessed?: boolean }[]}
  */
 export function splitFilled(text) {
   const source = String(text ?? '');
@@ -518,7 +520,8 @@ export function splitFilled(text) {
   let last = 0;
   for (const m of source.matchAll(/\[\[(.+?)\]\]/g)) {
     if (m.index > last) parts.push({ text: source.slice(last, m.index), filled: false });
-    parts.push({ text: m[1], filled: true });
+    const guessed = m[1].startsWith('?');
+    parts.push({ text: guessed ? m[1].slice(1) : m[1], filled: true, guessed });
     last = m.index + m[0].length;
   }
   if (last < source.length) parts.push({ text: source.slice(last), filled: false });
