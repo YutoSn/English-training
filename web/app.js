@@ -81,6 +81,7 @@ import {
   parseYouTubeUrl,
   resolveSubtitleMode,
   SUBTITLE_MODES,
+  splitFilled,
   validateVideoSet,
   videoConfig,
   videoLabel,
@@ -2048,7 +2049,12 @@ function videoViewer(entry) {
               'div',
               { class: 'line-en' },
               line.speaker ? el('span', { class: 'meta' }, `${line.speaker}: `) : null,
-              line.text,
+              // 伏せ字 [ __ ] を推測で補った語 ([[語]]) は色を変えて出す
+              splitFilled(line.text).map((part) =>
+                part.filled
+                  ? el('mark', { class: 'filled', title: '伏せられていた語を推測で補いました' }, part.text)
+                  : part.text,
+              ),
             ),
             line.ja ? el('div', { class: 'line-ja' }, line.ja) : null,
           ),
