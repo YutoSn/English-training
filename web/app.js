@@ -922,6 +922,51 @@ function generatePanel() {
  */
 const video = { player: null, entryId: null, busy: false, open: null };
 
+/*
+ * 画面の下から出るパネル (シート)。「動画を追加」「再生区間」「保存した動画」を、字幕を
+ * どこまでスクロールしていても、その場で開けるようにする。中身の要素はそのまま移し入れる
+ * (イベントや入力中の値を保ったまま)。
+ */
+const sheet = { root: null, title: null, body: null };
+
+function ensureSheet() {
+  if (sheet.root) return;
+  sheet.title = el('h2', {});
+  sheet.body = el('div', { class: 'sheet-body' });
+  const panel = el(
+    'div',
+    { class: 'sheet', role: 'dialog', 'aria-modal': 'true' },
+    el(
+      'div',
+      { class: 'sheet-head' },
+      sheet.title,
+      el('button', { class: 'btn small', 'aria-label': '閉じる', onclick: closeSheet }, '✕'),
+    ),
+    sheet.body,
+  );
+  sheet.root = el('div', { class: 'sheet-backdrop hidden' }, panel);
+  // 外側 (暗いところ) をタップしたら閉じる
+  sheet.root.addEventListener('click', (e) => e.target === sheet.root && closeSheet());
+  document.addEventListener('keydown', (e) => e.key === 'Escape' && closeSheet());
+  document.body.append(sheet.root);
+}
+
+function openSheet(title, content) {
+  ensureSheet();
+  sheet.title.textContent = title;
+  sheet.body.replaceChildren(content);
+  sheet.root.classList.remove('hidden');
+  document.body.classList.add('sheet-open');
+  sheet.body.scrollTop = 0;
+}
+
+function closeSheet() {
+  if (!sheet.root || sheet.root.classList.contains('hidden')) return;
+  sheet.root.classList.add('hidden');
+  document.body.classList.remove('sheet-open');
+  sheet.body.replaceChildren();
+}
+
 function destroyVideoPlayer() {
   clearInterval(video.followTimer);
   video.player?.destroy();
@@ -1548,7 +1593,6 @@ function videoPanel() {
     jobBanner.classList.add('hidden');
     try {
       const entry = await make();
-      addCard.open = false;
       openEntry(entry.id);
       toast('字幕ができました');
     } catch (err) {
@@ -1658,23 +1702,47 @@ function videoPanel() {
     libraryCard.classList.toggle('hidden', entries.length === 0);
   }
 
+  /*
+   * 動画を開いているときは「動画を追加」「保存した動画」を固定エリアのボタンからシートで開く。
+   * 開いていないとき (初回・開いていた動画を消したとき) は画面に直接出す。
+   */
+  const inline = el('div', {});
+
   function openEntry(id) {
     const entry = id ? loadVideoLibrary().find((e) => e.id === id) : null;
+    closeSheet();
     destroyVideoPlayer();
     video.entryId = entry?.id ?? null;
     saveLastVideoId(video.entryId);
+    if (entry) {
+      inline.replaceChildren();
+    } else {
+      addCard.open = true;
+      inline.replaceChildren(addCard, libraryCard);
+    }
     viewer.replaceChildren(...(entry ? videoViewer(entry) : []));
     refreshLibrary();
   }
   // 再生区間の変更で新しい字幕を作ったとき、ビューアからも開けるように。
   video.open = openEntry;
+  // 固定エリアのボタンから開く
+  video.openAdd = () => {
+    addCard.open = true;
+    refreshJob();
+    openSheet('＋ 動画を追加', addCard);
+  };
+  video.openLibrary = () => {
+    refreshLibrary();
+    openSheet('📂 保存した動画', libraryCard);
+  };
 
   /**
    * Android の「共有」で届いたもの (sw.js が受け取る) を「動画を追加」に入れる。
    * YouTube アプリからは URL、ファイルアプリからは字幕ファイルが届く。
    */
   video.receiveShare = (payload) => {
-    addCard.open = true;
+    if (video.entryId) video.openAdd();
+    else addCard.open = true;
     const url = findYouTubeUrl(payload.url, payload.text, payload.title);
     if (url) {
       urlInput.value = url;
@@ -1690,12 +1758,12 @@ function videoPanel() {
     }
     const got = [url && 'URL', payload.fileText && `字幕ファイル (${payload.fileName ?? ''})`];
     toast(`共有を受け取りました: ${got.filter(Boolean).join(' と ') || '使えるものがありません'}`);
-    addCard.scrollIntoView({ block: 'start' });
+    if (!video.entryId) addCard.scrollIntoView({ block: 'start' });
   };
 
   refreshSource();
   refreshJob();
-  frag.append(addCard, viewer, libraryCard);
+  frag.append(inline, viewer);
 
   // タブを作り直したとき (別のセットを開いたとき) も開いていた動画を戻す。
   // 起動直後は、前回最後に見ていた動画を開く (消されていれば何も開かない)。
@@ -1832,10 +1900,10 @@ function videoViewer(entry) {
   // 見出しと区間の変更はスクロールで流れてよい。動画と再生ボタンだけを上に固定する
   // (player-stage)。固定は親 (ビューア) の中で効くので、字幕カードを読み進める間ずっと見える。
   // 区間の変更は字幕の下に置く。上は動画 (固定) と字幕だけにして、操作の邪魔をしない。
+  // 「⏱」ボタンからシートで開く (字幕の下に置くと、長い字幕のあとまでスクロールが要る)。
   const rangeCard = el(
     'div',
     { class: 'card' },
-    el('h2', {}, '再生区間'),
     rangeLabel,
     rangeHelp,
     el('div', { class: 'controls topic-form' }, playStart, playEnd, changeBtn, resetBtn),
@@ -1878,9 +1946,28 @@ function videoViewer(entry) {
       playMode === 'loop' ? p.playLine(line, true) : p.playFrom(line.start, play.end),
     );
 
+  /*
+   * 固定エリアの頭の1行: タイトルと、どこからでも押せるボタン。「＋」「⏱」「📂」は
+   * 下からシートを開く。「↕」は自動スクロールのオン・オフ。
+   */
+  const iconButton = (label, text, onclick) =>
+    el('button', { class: 'btn small icon-btn', 'aria-label': label, title: label, onclick }, text);
+  const addButton = iconButton('動画を追加', '＋', () => video.openAdd?.());
+  // 作成途中の字幕があれば「＋」に印を付ける (続きから作成できる)
+  addButton.classList.toggle('badge', Boolean(loadVideoJob()));
+  const stageHead = el(
+    'div',
+    { class: 'stage-head' },
+    el('h2', { class: 'stage-title', title: set.title }, set.title),
+    addButton,
+    iconButton('再生区間', '⏱', () => openSheet('⏱ 再生区間', rangeCard)),
+    iconButton('保存した動画', '📂', () => video.openLibrary?.()),
+  );
+
   const stage = el(
     'div',
     { class: 'player-stage' },
+    stageHead,
     frame,
     el(
       'div',
@@ -2008,7 +2095,9 @@ function videoViewer(entry) {
   const autoScrollBtn = el(
     'button',
     {
-      class: 'btn small',
+      class: 'btn small icon-btn',
+      'aria-label': '自動スクロール',
+      title: '自動スクロール',
       onclick: () => {
         autoScroll = !autoScroll;
         saveAutoScroll(autoScroll);
@@ -2020,9 +2109,10 @@ function videoViewer(entry) {
   );
   function refreshAutoScroll() {
     autoScrollBtn.setAttribute('aria-pressed', String(autoScroll));
-    autoScrollBtn.textContent = autoScroll ? '↕ 自動スクロール: オン' : '↕ 自動スクロール: オフ';
+    autoScrollBtn.textContent = '↕';
   }
   refreshAutoScroll();
+  stageHead.append(autoScrollBtn);
 
   // 表示の切り替えは、字幕を読み進めながら押せるよう動画の下 (固定部分) に置く。
   stage.append(
@@ -2033,20 +2123,14 @@ function videoViewer(entry) {
     ),
   );
 
-  const subtitleCard = el(
-    'div',
-    { class: 'card' },
-    el('h2', {}, set.title),
-    el('div', { class: 'controls' }, autoScrollBtn),
-    noneNote,
-    transcriptList,
-  );
+  // 見出しと自動スクロールは固定エリアへ移したので、字幕カードは字幕だけ。
+  const subtitleCard = el('div', { class: 'card' }, noneNote, transcriptList);
 
   refreshRange();
   renderTranscript();
   refreshMode();
   refreshPlayMode();
-  return [stage, subtitleCard, rangeCard];
+  return [stage, subtitleCard];
 }
 
 /* ---------- shell ---------- */
