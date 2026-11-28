@@ -433,13 +433,15 @@ label.file-pick input[type="file"] {
 body.sheet-open { overflow: hidden; }
 
 /* 伏せ字 [ __ ] を推測で補った語。元は伏せられていたと分かるよう、点線の下線と淡い色を付ける。 */
+/* 音声を聞いて補った語は実線、聞き取れず推測のままの語は点線と「?」 */
 mark.filled {
   background: color-mix(in srgb, var(--ng) 14%, transparent);
   color: inherit;
-  border-bottom: 1px dashed var(--ng);
+  border-bottom: 1px solid var(--ng);
   border-radius: 3px;
   padding: 0 0.1em;
 }
+mark.filled.guessed { border-bottom-style: dashed; }
 
 /*
  * 再生のしかた (2つ)・速度・↕ を、幅の狭いスマホ (iPhone SE など) でも1行に収める。

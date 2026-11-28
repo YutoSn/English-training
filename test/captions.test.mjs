@@ -6,6 +6,10 @@ import {
   captionSchema,
   cuesInRange,
   cuesToExtend,
+  buildMaskPrompt,
+  countMasked,
+  fillMasks,
+  maskSchema,
   MASK,
   parseCaptions,
   splitCues,
@@ -301,4 +305,37 @@ test('validateCaptionSet は伏せ字が残っていれば作り直させるが�
     sentences: [{ from: 0, to: 0, text: 'That was [[damn]] good.', ja: 'あ' }],
   };
   assert.deepEqual(validateCaptionSet(filled, 1), []);
+});
+
+test('countMasked は推測で補った語と、残った [ __ ] を数える', () => {
+  assert.equal(countMasked('That was [[damn]] good, [[?hell]] yes, [ __ ].'), 3);
+  assert.equal(countMasked('No masks.'), 0);
+});
+
+test('buildMaskPrompt は伏せ字を ___ にし、区間と「伏せずに書く」ことを伝える', () => {
+  const prompt = buildMaskPrompt({ text: 'That was [[damn]] good, [ __ ] yes.', start: 79, end: 84 });
+  assert.match(prompt, /"That was ___ good, ___ yes\."/);
+  assert.match(prompt, /79秒〜84秒/);
+  assert.match(prompt, /伏せ字で隠さない/);
+  assert.deepEqual(maskSchema.required, ['words', 'ja']);
+});
+
+test('fillMasks は聞き取れた語を [[語]]、聞き取れなかった所を推測のまま [[?語]] にする', () => {
+  const line = { start: 80, end: 83, text: 'That was [[damn]] good, [[hell]] yes.', ja: '元の訳' };
+  assert.deepEqual(fillMasks(line, { words: ['fucking', 'f***'], ja: '新しい訳' }), {
+    ...line,
+    text: 'That was [[fucking]] good, [[?hell]] yes.',
+    ja: '新しい訳',
+  });
+  // 依頼が失敗 → 全部推測扱い、訳は元のまま
+  assert.deepEqual(fillMasks(line, null), {
+    ...line,
+    text: 'That was [[?damn]] good, [[?hell]] yes.',
+  });
+  // 数が合わない答えは使わない
+  assert.equal(fillMasks(line, { words: ['x'], ja: 'y' }).ja, '元の訳');
+  // 補われずに残った [ __ ] も聞き取れれば埋まる
+  const masked = { ...line, text: 'It was [ __ ] cold.' };
+  assert.equal(fillMasks(masked, { words: ['bloody'], ja: '寒' }).text, 'It was [[bloody]] cold.');
+  assert.equal(fillMasks(masked, { words: [''], ja: '' }).text, 'It was [ __ ] cold.');
 });

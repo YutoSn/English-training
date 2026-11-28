@@ -92,6 +92,10 @@ import {
   buildCaptionRequest,
   cuesInRange,
   cuesToExtend,
+  buildMaskPrompt,
+  countMasked,
+  fillMasks,
+  maskSchema,
   parseCaptions,
   splitCues,
   toTranscript,
@@ -1047,6 +1051,7 @@ function progressCounter(total) {
       total++;
       toast('長かったので分けて作り直しています');
     },
+    add: (n) => (total += n),
   };
 }
 
@@ -1110,7 +1115,7 @@ async function runCreation({ job, total, label, setStatus }, work) {
     };
   };
   try {
-    const entry = await work({ step, onSplit: progress.split });
+    const entry = await work({ step, onSplit: progress.split, addTotal: progress.add });
     clearVideoJob();
     setStatus('');
     return entry;
@@ -1247,7 +1252,7 @@ async function translateCueGroups({ videoId, groups, label, setStatus, extra = {
   const parts = groups.flatMap((cues, group) => splitCues(cues).map((part) => ({ group, part })));
   return runCreation(
     { job, total: parts.length, label: '日本語訳を作成中', setStatus },
-    async ({ step, onSplit }) => {
+    async ({ step, onSplit, addTotal }) => {
       // 分けて頼むときは「長い字幕の一部」と伝える (part を付ける)。
       const run = step(
         (piece) =>
@@ -1268,13 +1273,21 @@ async function translateCueGroups({ videoId, groups, label, setStatus, extra = {
           onSplit,
         }),
       );
-      return groups.map((_, group) => {
+      const translated = groups.map((_, group) => {
         const results = perPart.filter((_, i) => parts[i].group === group).flat();
         return {
           title: results[0]?.title ?? '',
           transcript: results.flatMap((r) => r.transcript),
         };
       });
+      // 伏せ字 [ __ ] を含む文は、その区間の音声を聞いて補い直す (推測より正確)。
+      for (const result of translated) {
+        result.transcript = await listenForMasks({ videoId, gasUrl, token }, result.transcript, {
+          step,
+          addTotal,
+        });
+      }
+      return translated;
     },
   );
 }
@@ -1342,6 +1355,41 @@ async function extendCaptionEntry(entry, { start, end }, setStatus) {
   entry.play = { start, end };
   saveVideoEntry(entry);
   return entry;
+}
+
+/**
+ * 伏せ字 [ __ ] を含む文だけ、その文の前後1秒を含む区間の動画を Gemini に渡して、実際に何と
+ * 言っているかを聞き取らせる (文脈からの推測より正確)。聞き取れた語は [[語]]、聞き取れな
+ * かった所は推測のまま [[?語]] にする。聞き取りの依頼が失敗しても、作成は止めない。
+ * 音声を聞くので、字幕ファイル用の軽いモデルではなく、ふだんのモデルを使う。
+ */
+async function listenForMasks({ videoId, gasUrl, token }, transcript, { step, addTotal }) {
+  const targets = transcript
+    .map((line, index) => ({ line, index }))
+    .filter(({ line }) => countMasked(line.text) > 0);
+  if (!targets.length) return transcript;
+  addTotal(targets.length);
+  const cfg = videoConfig(state.config);
+  const run = step(
+    async ({ line }) => {
+      const start = Math.max(0, line.start - 1);
+      const end = Math.max(line.end + 1, start + 3);
+      const prompt = buildMaskPrompt({ text: line.text, start, end });
+      const req = buildGasRequest({ token, videoId, start, end, prompt, model: cfg.model });
+      try {
+        return await callGas(gasUrl, { ...req, schema: maskSchema });
+      } catch {
+        return null; // 聞き取れなくても推測のまま残す
+      }
+    },
+    ({ line }) => `mask:${line.start}-${line.end}`,
+  );
+  const answers = await mapPool(targets, cfg.concurrency, run);
+  const next = [...transcript];
+  targets.forEach(({ line, index }, i) => {
+    next[index] = fillMasks(line, answers[i]);
+  });
+  return next;
 }
 
 /** 「続きから作成」: 新しく作る途中か、広げる途中かで呼び分ける。 */
@@ -2049,7 +2097,16 @@ function videoViewer(entry) {
               // 伏せ字 [ __ ] を推測で補った語 ([[語]]) は色を変えて出す
               splitFilled(line.text).map((part) =>
                 part.filled
-                  ? el('mark', { class: 'filled', title: '伏せられていた語を推測で補いました' }, part.text)
+                  ? el(
+                      'mark',
+                      {
+                        class: part.guessed ? 'filled guessed' : 'filled',
+                        title: part.guessed
+                          ? '伏せられていた語を、聞き取れなかったので文脈から推測しました'
+                          : '伏せられていた語を、音声を聞いて補いました',
+                      },
+                      part.guessed ? `${part.text}?` : part.text,
+                    )
                   : part.text,
               ),
             ),

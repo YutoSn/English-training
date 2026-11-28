@@ -295,3 +295,71 @@ export function toTranscript(cues, sentences) {
 export function buildCaptionRequest({ token, prompt, model }) {
   return { token, model, prompt, schema: captionSchema };
 }
+
+/* ---------- 伏せ字を音声で聞き取る ---------- */
+
+// 文の中の伏せ字: 推測で補った [[語]] / [[?語]] と、補われずに残った [ __ ]
+const MASKED = /\[\[\??(.+?)\]\]|\[ __ \]/g;
+
+/** 文に伏せ字 (補った語か、残った [ __ ]) がいくつあるか。 */
+export function countMasked(text) {
+  return [...String(text ?? '').matchAll(MASKED)].length;
+}
+
+/**
+ * 伏せ字を含む1文を、その前後少しを含む区間の動画から聞き取ってもらう依頼。
+ * 伏せ字は ___ にして渡し、何と言っているかを順に答えさせる。日本語訳も直させる。
+ */
+export function buildMaskPrompt({ text, start, end }) {
+  const blanked = String(text).replace(MASKED, '___');
+  return [
+    'あなたは英語の聞き取りの専門家です。',
+    `添付した YouTube 動画の ${start}秒〜${end}秒の区間で、次の英語が話されています。`,
+    '',
+    `"${blanked}"`,
+    '',
+    '___ の部分は字幕では伏せられていた語です (多くは汚い言葉・罵り言葉)。',
+    '音声をよく聞いて、___ に入る語を、前から順に、実際に言っているとおりに書き起こしてください。',
+    '- words に、___ 1つにつき1つずつ、聞こえた語をそのまま入れる。* や伏せ字で隠さない。',
+    '- 聞き取れなかった ___ は空文字にする (推測で埋めない)。',
+    '- ja に、聞き取った語を入れて完成させた文の、自然な日本語訳を入れる。',
+  ].join('\n');
+}
+
+export const maskSchema = {
+  type: 'OBJECT',
+  properties: {
+    words: {
+      type: 'ARRAY',
+      items: { type: 'STRING' },
+      description: '___ に入る語を前から順に。聞き取れなければ空文字',
+    },
+    ja: { type: 'STRING', description: '完成させた文の日本語訳' },
+  },
+  required: ['words', 'ja'],
+  propertyOrdering: ['words', 'ja'],
+};
+
+/**
+ * 聞き取った語を文に入れる。聞き取れた語は [[語]]、聞き取れなかった所は推測のまま
+ * [[?語]] (推測も無ければ [ __ ] のまま)。answer が無い (依頼が失敗した) ときは全部推測扱い。
+ * 聞き取れた語が1つもなければ、日本語訳は元のままにする。
+ */
+export function fillMasks(line, answer) {
+  const words = Array.isArray(answer?.words) ? answer.words : [];
+  const count = countMasked(line.text);
+  const usable = words.length === count ? words : [];
+  let i = 0;
+  let heardAny = false;
+  const text = String(line.text).replace(MASKED, (whole, guess) => {
+    const heard = String(usable[i++] ?? '').trim();
+    // * で伏せて返してきたもの (f***) は聞き取れなかった扱い
+    if (heard && !/\*/.test(heard)) {
+      heardAny = true;
+      return `[[${heard}]]`;
+    }
+    return guess ? `[[?${guess.replace(/^\?/, '')}]]` : whole;
+  });
+  const ja = heardAny && typeof answer?.ja === 'string' && answer.ja.trim() ? answer.ja.trim() : line.ja;
+  return { ...line, text, ja };
+}
