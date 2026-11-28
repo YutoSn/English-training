@@ -508,6 +508,24 @@ function mergeLines(lines) {
 /* ---------- 字幕の表示 ---------- */
 
 /**
+ * 英文を、ふつうの部分と、伏せ字 [ __ ] を推測で補った部分 ([[語]]) に分ける。
+ * 補った部分は表示で色を変え、元は伏せられていた語だと分かるようにする。
+ * @returns {{ text: string, filled: boolean }[]}
+ */
+export function splitFilled(text) {
+  const source = String(text ?? '');
+  const parts = [];
+  let last = 0;
+  for (const m of source.matchAll(/\[\[(.+?)\]\]/g)) {
+    if (m.index > last) parts.push({ text: source.slice(last, m.index), filled: false });
+    parts.push({ text: m[1], filled: true });
+    last = m.index + m[0].length;
+  }
+  if (last < source.length) parts.push({ text: source.slice(last), filled: false });
+  return parts;
+}
+
+/**
  * 再生位置 t に当たる行の添字 (行は時刻順)。行と行の間 (間や音楽) では直前の行のまま、
  * 最初の行より前なら -1。
  */

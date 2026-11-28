@@ -9,6 +9,9 @@
 
 import { MAX_LINE_WORDS, overlongReason } from './video.js';
 
+/** YouTube の自動生成字幕が、汚い言葉などを伏せた印。 */
+export const MASK = '[ __ ]';
+
 /* ---------- 読み取り ---------- */
 
 const ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', '#39': "'" };
@@ -185,6 +188,9 @@ export function buildCaptionPrompt({ cues, feedback = [], part }) {
     '- text は、その行たちの英語をつないだもの。句読点・大文字・アポストロフィを補ってよいが、' +
       '単語の言い換えや要約はしない。明らかな聞き間違いだけは直してよい。',
     '- 字幕に混ざった [Music] [Applause] などの効果音表記は text から除く。',
+    `- **${MASK} は YouTube が汚い言葉などを伏せた印**で、効果音ではない。消さずに、前後の文脈から` +
+      'いちばん自然な英単語を推測して補い、補った語を [[ ]] で囲む (例: "That was [[damn]] good.")。' +
+      'ja では補った語の意味も訳す。',
     '- ja は text の自然な日本語訳。直訳ではなく、話の流れが分かる訳にする。',
     '',
     '## title',
@@ -261,6 +267,9 @@ export function validateCaptionSet(set, count, { checkLength = true } = {}) {
     }
     expected = s.to + 1;
     if (typeof s.text !== 'string' || !s.text.trim()) errors.push(`sentences[${i}].text が空です`);
+    if (checkLength && String(s.text).includes(MASK)) {
+      errors.push(`sentences[${i}] に ${MASK} が残っています。文脈から推測して [[語]] の形で補ってください`);
+    }
     const overlong = checkLength && overlongReason(s.text);
     if (overlong) errors.push(`sentences[${i}] は${overlong}`);
     if (typeof s.ja !== 'string' || !s.ja.trim()) errors.push(`sentences[${i}].ja が空です`);

@@ -6,6 +6,7 @@ import {
   captionSchema,
   cuesInRange,
   cuesToExtend,
+  MASK,
   parseCaptions,
   splitCues,
   toTranscript,
@@ -275,4 +276,29 @@ test('cuesToExtend は訳し済みの範囲を除いて、足りない前後の�
   // 訳し済みの内側なら何も無い
   const inside = cuesToExtend(all, transcript, 76, 89);
   assert.deepEqual([inside.before, inside.after], [[], []]);
+});
+
+test('伏せ字 [ __ ] は読み取りで消さずに残す (Gemini が補う)', () => {
+  const cues = parseCaptions('1\n00:00:01,000 --> 00:00:03,000\nthat was [ __ ] good\n');
+  assert.equal(cues[0].text, `that was ${MASK} good`);
+});
+
+test('buildCaptionPrompt は伏せ字を効果音と区別し、推測して [[ ]] で囲むよう頼む', () => {
+  const prompt = buildCaptionPrompt({ cues: [cue(0, `that was ${MASK} good`)] });
+  assert.match(prompt, /YouTube が汚い言葉などを伏せた印/);
+  assert.match(prompt, /\[\[ \]\] で囲む/);
+});
+
+test('validateCaptionSet は伏せ字が残っていれば作り直させるが、最後の試行では受け入れる', () => {
+  const set = {
+    title: 't',
+    sentences: [{ from: 0, to: 0, text: `That was ${MASK} good.`, ja: 'あ' }],
+  };
+  assert.match(validateCaptionSet(set, 1).join('\n'), /\[ __ \] が残っています/);
+  assert.deepEqual(validateCaptionSet(set, 1, { checkLength: false }), []);
+  const filled = {
+    title: 't',
+    sentences: [{ from: 0, to: 0, text: 'That was [[damn]] good.', ja: 'あ' }],
+  };
+  assert.deepEqual(validateCaptionSet(filled, 1), []);
 });
