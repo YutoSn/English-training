@@ -370,3 +370,64 @@ label.file-pick input[type="file"] {
   margin: 0.25rem 0 0.75rem;
 }
 .job-banner p { margin: 0 0 0.4rem; font-size: 0.9rem; }
+
+/* 固定エリアの頭: タイトル (はみ出しは …) と、アイコンのボタン */
+.stage-head { display: flex; align-items: center; gap: 0.3rem; margin-bottom: 0.4rem; }
+.stage-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  font-size: 0.95rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.icon-btn { min-width: 40px; padding: 0.2rem 0.5rem; font-size: 1rem; position: relative; }
+.icon-btn[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+.icon-btn.badge::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ng);
+}
+
+/* 下から出るパネル (シート) */
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+.sheet-backdrop.hidden { display: none; }
+.sheet {
+  background: var(--surface);
+  width: 100%;
+  max-width: 780px;
+  max-height: 85vh;
+  overflow-y: auto;
+  border-radius: 16px 16px 0 0;
+  padding: 0 1rem calc(1rem + env(safe-area-inset-bottom));
+}
+.sheet-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: var(--surface);
+  padding: 0.75rem 0 0.5rem;
+}
+.sheet-head h2 { flex: 1 1 auto; margin: 0; font-size: 1.05rem; }
+/* シートの中ではカードの枠と、カード自身の見出し (シートの見出しと重なる) を出さない */
+.sheet-body > .card { border: 0; padding: 0; margin: 0; background: none; }
+.sheet-body > .card > h2,
+.sheet-body > details.add-card > summary { display: none; }
+body.sheet-open { overflow: hidden; }
