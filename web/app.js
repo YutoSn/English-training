@@ -1915,9 +1915,10 @@ function videoViewer(entry) {
    * 字幕の ▶ を押したときの再生のしかた。「続けて再生」はその文から再生区間の終わりまで、
    * 「1文くり返し」はその文だけをくり返す。止めるときは動画をタップ (YouTube の一時停止)。
    */
+  // 狭いスマホでも ↕ と同じ1行に収まるよう、ボタンは文字だけにする (行の ▶ / 🔂 で見分けられる)
   const PLAY_MODES = [
-    ['continue', '▶ 続けて再生'],
-    ['loop', '🔂 1文くり返し'],
+    ['continue', '続けて再生'],
+    ['loop', '1文くり返し'],
   ];
   let playMode = loadRowPlayMode();
   const playModeButtons = PLAY_MODES.map(([id, label]) =>
@@ -1965,22 +1966,18 @@ function videoViewer(entry) {
     iconButton('保存した動画', '📂', () => video.openLibrary?.()),
   );
 
-  const stage = el(
+  // 再生のしかた・速度・自動スクロール (↕ はあとで足す) を1行に並べる
+  const stageRow = el(
     'div',
-    { class: 'player-stage' },
-    stageHead,
-    frame,
+    { class: 'controls stage-row' },
     el(
       'div',
-      { class: 'controls stage-row' },
-      el(
-        'div',
-        { class: 'segmented', role: 'group', 'aria-label': '字幕の ▶ を押したときの再生' },
-        playModeButtons,
-      ),
-      rate,
+      { class: 'segmented', role: 'group', 'aria-label': '字幕の ▶ を押したときの再生' },
+      playModeButtons,
     ),
+    rate,
   );
+  const stage = el('div', { class: 'player-stage' }, stageHead, frame, stageRow);
 
   /* ---- 字幕 ---- */
   const transcriptList = el('ol', { class: 'transcript' });
@@ -2118,7 +2115,7 @@ function videoViewer(entry) {
     autoScrollBtn.textContent = '↕';
   }
   refreshAutoScroll();
-  stageHead.append(autoScrollBtn);
+  stageRow.append(autoScrollBtn);
 
   // 表示の切り替えは、字幕を読み進めながら押せるよう動画の下 (固定部分) に置く。
   stage.append(

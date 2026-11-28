@@ -440,3 +440,12 @@ mark.filled {
   border-radius: 3px;
   padding: 0 0.1em;
 }
+
+/*
+ * 再生のしかた (2つ)・速度・↕ を、幅の狭いスマホ (iPhone SE など) でも1行に収める。
+ * 速度の選択は中身 (1.25x) が入る幅まで縮め、ボタンは少し小さい文字にする。
+ */
+.player-stage .stage-row { gap: 0.3rem; }
+.player-stage .stage-row .segmented .btn { font-size: 0.82rem; padding: 0.2rem 0.3rem; }
+.player-stage .stage-row select { width: 4.6em; min-width: 0; padding: 0.3rem 0.2rem; }
+.player-stage .stage-row .icon-btn { flex: 0 0 auto; }
